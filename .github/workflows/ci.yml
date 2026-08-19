@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Not a blocking gate yet — the existing codebase predates Prettier
+      # and hasn't had a full repo-wide reformat pass (a large, separate
+      # decision). Flip to a hard failure once that's done.
+      - name: Format check (informational only)
+        run: npm run format:check
+        continue-on-error: true
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        env:
+          # Placeholder values so the production build succeeds in CI without
+          # real secrets — nothing here needs to be a working credential for
+          # `next build` to compile and statically generate pages; it only
+          # needs the vars to be present so client bundles have *something*
+          # inlined. Real deploys supply real values via the hosting
+          # platform's own env var configuration, not this workflow.
+          NEXT_PUBLIC_API_BASE_URL: https://api.example.invalid
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci-placeholder.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_APP_ID: ci-placeholder
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ci-placeholder
+          INTERNAL_API_KEY: ci-placeholder-internal-api-key
+        run: npm run build

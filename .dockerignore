@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+build
+.git
+.github
+.env
+.env.local
+.env.*.local
+*.md
+TEST_PLAN.md
