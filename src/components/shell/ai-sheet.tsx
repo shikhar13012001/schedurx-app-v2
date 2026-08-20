@@ -13,7 +13,10 @@ import { getFirebaseAuth } from "@/lib/firebase";
 import { api, ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+// Always relative — see src/lib/api-client.ts's BASE_URL comment. The SSE
+// stream below goes through next.config.mjs's /api/v1/* rewrite too, same as
+// every other browser call in this app.
+const BASE_URL = "";
 
 const TOOL_PROGRESS_LABEL: Record<string, string> = {
   block_time: "Blocking your calendar…",

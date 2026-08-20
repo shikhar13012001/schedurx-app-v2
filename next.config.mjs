@@ -1,5 +1,24 @@
 import { withSentryConfig } from "@sentry/nextjs";
 
+// The backend droplet is plain HTTP (no TLS) while this app is served over
+// HTTPS on Vercel — a client-side fetch() straight to the backend is blocked
+// as mixed content (confirmed live: the deployed app was calling
+// NEXT_PUBLIC_API_BASE_URL directly from the browser, which either 404s
+// against a misconfigured value or gets silently blocked once pointed at the
+// real droplet). Routing /api/v1/* through this same-origin rewrite instead
+// means the browser only ever talks to this app's own HTTPS origin; Vercel's
+// server proxies the request on to the backend over plain HTTP itself, where
+// the browser's mixed-content policy doesn't apply. src/lib/api-client.ts
+// and ai-sheet.tsx now call relative /api/v1/... paths in the browser
+// instead of prefixing NEXT_PUBLIC_API_BASE_URL — this rewrite is what makes
+// that resolve to the real backend. NEXT_PUBLIC_API_BASE_URL must still be
+// set correctly (the real backend origin) for this rewrite's destination —
+// it no longer needs to be reachable directly from a browser, only from
+// Vercel's own server.
+function backendOrigin() {
+  return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4005").replace(/\/$/, "");
+}
+
 // Standalone output lets the Dockerfile ship a minimal, self-contained
 // runtime (just .next/standalone + static assets) instead of the full
 // node_modules tree.
@@ -7,6 +26,9 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  async rewrites() {
+    return [{ source: "/api/v1/:path*", destination: `${backendOrigin()}/api/v1/:path*` }];
+  },
   async headers() {
     return [
       {

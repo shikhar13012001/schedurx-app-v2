@@ -2,7 +2,12 @@
 
 import { getFirebaseAuth } from "@/lib/firebase";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+// Always relative — this module only ever runs in the browser ("use client"
+// above), and next.config.mjs's rewrite proxies /api/v1/* to the real
+// backend origin server-side. A direct browser fetch to the backend's own
+// origin would be blocked as mixed content on Vercel (HTTPS page, plain-HTTP
+// droplet) — see next.config.mjs's rewrites() for the full explanation.
+const BASE_URL = "";
 
 export class ApiError extends Error {
   status: number;
