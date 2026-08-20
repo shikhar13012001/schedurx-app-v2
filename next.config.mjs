@@ -46,16 +46,23 @@ const nextConfig = {
             // Next.js's own inline bootstrap scripts and React Fast Refresh
             // in dev — tightening this further needs per-script nonces,
             // which Next 14's Pages/App Router hybrid doesn't wire up by
-            // default. connect-src includes the backend origin and
-            // Firebase/Supabase/ElevenLabs endpoints this app actually calls.
+            // default. apis.google.com/gstatic.com/accounts.google.com are
+            // required by Firebase Auth's signInWithPopup(googleProvider) —
+            // confirmed live: without script-src allowing apis.google.com,
+            // the gapi iframe helper it injects gets blocked and Google
+            // sign-in breaks entirely. connect-src includes the backend
+            // origin and Firebase/Supabase/ElevenLabs endpoints this app
+            // actually calls — note apis.google.com is its own domain, not a
+            // *.googleapis.com subdomain, so it needs its own entry too.
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://www.gstatic.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.supabase.co wss://*.supabase.co http://139.59.34.211:4000 https://*.schedurx.in",
+              "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://*.supabase.co wss://*.supabase.co http://139.59.34.211:4000 https://*.schedurx.com",
+              "frame-src 'self' https://accounts.google.com https://*.firebaseapp.com",
               "frame-ancestors 'none'",
             ].join("; "),
           },
