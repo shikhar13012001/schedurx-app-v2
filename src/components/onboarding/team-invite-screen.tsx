@@ -41,7 +41,10 @@ export function TeamInviteScreen({ clinicName, canInviteDoctor }: { clinicName: 
 
   const share = () => {
     if (!link) return;
-    if (navigator.share) void navigator.share({ text: shareText, url: link }).catch(() => {});
+    // text already has the link embedded — also passing url separately made
+    // most share targets (WhatsApp included) append it a second time, so the
+    // recipient saw the same link twice in one message.
+    if (navigator.share) void navigator.share({ text: shareText }).catch(() => {});
     else copy(shareText, "Invite");
   };
 
