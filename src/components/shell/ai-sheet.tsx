@@ -9,6 +9,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { AIControl } from "@/components/ui/ai-control";
 import { useSession } from "@/stores";
 import { useDoctors } from "@/hooks/use-team";
+import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { api, ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
@@ -23,17 +24,6 @@ const TOOL_PROGRESS_LABEL: Record<string, string> = {
   find_next_free_slot: "Checking availability…",
   find_patient_history: "Looking up patient…",
   add_task: "Adding task…",
-};
-
-// Minimal shim — the Web Speech API isn't in every TS lib.dom version, and it's
-// only ever accessed behind a runtime feature check below.
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  onresult: ((e: { results: { transcript: string }[][] }) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
 };
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -62,10 +52,10 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
   const session = useSession((s) => s.session);
   const { data: doctors } = useDoctors();
   const [text, setText] = useState("");
-  const [live, setLive] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const recorder = useVoiceRecorder();
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Tracks whether the question that's about to be sent was asked by voice
@@ -107,29 +97,35 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
     if (!open) { audioRef.current?.pause(); setSpeakingId(null); }
   }, [open]);
 
-  const startVoice = () => {
-    const Ctor = (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike })
-      .SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition;
-    if (!Ctor) {
-      toast.error("Voice dictation isn't supported in this browser.");
-      return;
+  // Was the browser's own SpeechRecognition (webkitSpeechRecognition) —
+  // client-side only, no error path when the mic was blocked or Chrome's
+  // recognizer lost its connection to Google's speech backend, which showed
+  // up as "Listening…" forever with no transcript and no explanation.
+  // Replaced with the same record-then-transcribe path Consults' voice-reply
+  // mic already uses successfully: useVoiceRecorder() + POST
+  // /api/v1/media/transcribe (real OpenAI Whisper, server-side).
+  const startVoice = async () => {
+    try {
+      await recorder.start();
+      askedByVoiceRef.current = true;
+    } catch {
+      toast.error("Couldn't access the microphone — check your browser permissions.");
     }
-    const recognition = new Ctor();
-    recognition.lang = "en-IN";
-    recognition.interimResults = true;
-    recognition.onresult = (e) => {
-      const transcript = Array.from(e.results).map((r) => r[0]?.transcript ?? "").join(" ");
-      setText(transcript);
-    };
-    recognition.onend = () => setLive(false);
-    recognitionRef.current = recognition;
-    setLive(true);
-    askedByVoiceRef.current = true;
-    recognition.start();
   };
-  const stopVoice = () => {
-    recognitionRef.current?.stop();
-    setLive(false);
+  const stopVoice = async () => {
+    if (!recorder.recording) return;
+    setTranscribing(true);
+    try {
+      const clip = await recorder.stop();
+      if (clip) {
+        const { text: transcript } = await api.post<{ text: string }>("/api/v1/media/transcribe", { audioBase64: clip.base64, filename: clip.filename });
+        setText(transcript);
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't transcribe that — try typing instead.");
+    } finally {
+      setTranscribing(false);
+    }
   };
 
   // ElevenLabs voice output — plays base64 MP3 from POST /api/v1/assistant/speak.
@@ -187,17 +183,17 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
       <div className="pb-1 pt-2">
         <div className="flex items-center gap-5">
           <button
-            onPointerDown={startVoice}
-            onPointerUp={stopVoice}
-            onPointerLeave={() => live && stopVoice()}
+            onPointerDown={() => void startVoice()}
+            onPointerUp={() => void stopVoice()}
+            onPointerLeave={() => recorder.recording && void stopVoice()}
             className="pressable shrink-0"
             aria-label="Hold to speak"
           >
-            <AIControl size={76} state={live ? "live" : thinking ? "thinking" : "idle"} />
+            <AIControl size={76} state={recorder.recording ? "live" : transcribing || thinking ? "thinking" : "idle"} />
           </button>
           <div>
             <p className="font-display text-[34px] font-light leading-[.98] tracking-[-0.055em]">What do you need?</p>
-            <p className="mt-2 text-[13px] leading-relaxed text-muted">{live ? "Listening…" : thinking ? "Working on it…" : "Hold the warm control to speak, or use a quick action."}</p>
+            <p className="mt-2 text-[13px] leading-relaxed text-muted">{recorder.recording ? "Listening…" : transcribing ? "Transcribing…" : thinking ? "Working on it…" : "Hold the warm control to speak, or use a quick action."}</p>
           </div>
         </div>
       </div>
@@ -264,9 +260,9 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
         <button
           type={text.trim() ? "submit" : "button"}
           disabled={Boolean(text.trim()) && thinking}
-          onPointerDown={() => { if (!text.trim()) startVoice(); }}
-          onPointerUp={() => { if (!text.trim()) stopVoice(); }}
-          onPointerLeave={() => { if (!text.trim() && live) stopVoice(); }}
+          onPointerDown={() => { if (!text.trim()) void startVoice(); }}
+          onPointerUp={() => { if (!text.trim()) void stopVoice(); }}
+          onPointerLeave={() => { if (!text.trim() && recorder.recording) void stopVoice(); }}
           className="pressable flex h-11 w-11 items-center justify-center rounded-full bg-primary text-charcoal disabled:opacity-40"
           aria-label={text.trim() ? "Send" : "Hold to speak"}
         >
