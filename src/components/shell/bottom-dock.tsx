@@ -24,7 +24,12 @@ export function BottomDock({ onSummonAI }: { onSummonAI: () => void }) {
     const Icon = t.icon;
     return (
       <button key={t.href} onClick={() => router.push(t.href)} className="pressable relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5" aria-label={t.label}>
-        <span className={cn("flex h-9 w-9 items-center justify-center rounded-full transition-colors", active ? "bg-white text-ink" : "text-white/[0.62]")}>
+        {/* The dock bar (srx-dark-glass) is a fixed-dark surface in both light and
+            dark theme, unlike most of the app — so the active pill's icon must
+            stay a fixed dark color too (not `text-ink`, which flips to
+            near-white in dark mode and would wash out against this white
+            circle). */}
+        <span className={cn("flex h-9 w-9 items-center justify-center rounded-full transition-colors", active ? "bg-white text-neutral-900" : "text-white/[0.62]")}>
           <Icon size={19} />
         </span>
         <span className={cn("text-[9.5px] font-medium", active ? "text-white" : "text-white/[0.46]")}>{t.label}</span>

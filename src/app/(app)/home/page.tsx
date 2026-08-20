@@ -32,6 +32,18 @@ function greeting() {
   return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 }
 
+// Doctor.fullName is stored with the "Dr." title already included (e.g. "Dr.
+// Anubhav Chandrakar") — splitting on the first space to find the given name
+// was silently dropping that title from the greeting. Keep "Dr." when present
+// instead of skipping past it.
+function doctorGreetingName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length > 1 && /^dr\.?$/i.test(parts[0])) {
+    return `Dr. ${parts[1]}`;
+  }
+  return parts[0] ?? fullName;
+}
+
 function openAI() {
   window.dispatchEvent(new CustomEvent("srx-ai-open"));
 }
@@ -105,7 +117,7 @@ function DoctorHome({ doctorId }: { doctorId: string }) {
         <div className="relative z-10">
           <p className="text-[13px] text-charcoal/[0.68] dark:text-white/[0.68]">{session.clinicName}</p>
           <h1 className="mt-4 max-w-[330px] text-balance font-display text-[clamp(3rem,12vw,4rem)] font-light leading-[0.94] tracking-[-0.055em]">
-            {greeting()},<br />{session.name.split(" ")[1] ?? session.name.split(" ")[0]}
+            {greeting()},<br />{doctorGreetingName(session.name)}
           </h1>
 
           <div className="mt-9 flex items-end justify-between gap-4">
