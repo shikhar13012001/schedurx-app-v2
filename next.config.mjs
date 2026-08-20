@@ -15,8 +15,21 @@ import { withSentryConfig } from "@sentry/nextjs";
 // set correctly (the real backend origin) for this rewrite's destination —
 // it no longer needs to be reachable directly from a browser, only from
 // Vercel's own server.
+// Vercel's rewrite engine rejects a raw IP-literal destination outright
+// (DNS_HOSTNAME_RESOLVED_PRIVATE, confirmed live against the real droplet
+// IP — a blanket SSRF-safety heuristic against IP literals, not an actual
+// check of whether the IP is public) even though NEXT_PUBLIC_API_BASE_URL
+// was correctly set to the real address. The droplet has no domain name of
+// its own (see PRODUCTION_CHECKLIST.md's "No TLS" item), so this rewrites a
+// bare-IP origin to the equivalent nip.io hostname — free wildcard DNS that
+// resolves "1-2-3-4.nip.io" straight back to 1.2.3.4 — giving Vercel an
+// actual hostname to accept without needing any real DNS/domain setup.
 function backendOrigin() {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4005").replace(/\/$/, "");
+  const raw = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4005").replace(/\/$/, "");
+  const match = raw.match(/^(https?:\/\/)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(:\d+)?$/);
+  if (!match) return raw;
+  const [, scheme, a, b, c, d, port] = match;
+  return `${scheme}${a}-${b}-${c}-${d}.nip.io${port ?? ""}`;
 }
 
 // Standalone output lets the Dockerfile ship a minimal, self-contained
