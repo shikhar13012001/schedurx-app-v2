@@ -18,7 +18,14 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
-  themeColor: "#F7F7F7",
+  // Two media-scoped tags instead of one static color — without this, a
+  // dark-mode device shows the light color at first paint (before
+  // ThemeApplier's client-side effect ever runs), which is exactly the
+  // "notif bar spill" a system-dark-mode user would see on every load.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F7F7F7" },
+    { media: "(prefers-color-scheme: dark)", color: "#181818" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

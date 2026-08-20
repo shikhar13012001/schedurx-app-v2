@@ -10,9 +10,13 @@ export function ThemeApplier() {
     const apply = () => {
       const dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
       root.classList.toggle("dark", dark);
-      const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", getComputedStyle(root).getPropertyValue("--bg").trim().split(" ").length === 3
-        ? `rgb(${getComputedStyle(root).getPropertyValue("--bg").trim()})` : "#F7F7F7");
+      // Media-scoped <meta name="theme-color"> tags (see app/layout.tsx) only
+      // cover first paint before this effect ever runs — this keeps it
+      // correct afterward, including reacting to a manual in-app theme
+      // toggle rather than only the OS-level media query.
+      const bg = getComputedStyle(root).getPropertyValue("--bg").trim();
+      const content = bg.split(" ").length === 3 ? `rgb(${bg})` : dark ? "#181818" : "#F7F7F7";
+      document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", content));
     };
     apply();
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
