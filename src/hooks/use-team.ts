@@ -5,6 +5,18 @@ import { api } from "@/lib/api-client";
 import { fromApiDoctor, fromApiStaff, type ApiDoctor, type ApiStaff } from "@/lib/adapters";
 import { useSession } from "@/stores";
 
+export interface InviteDelivery {
+  channel: "whatsapp" | "sms";
+  status: string;
+  providerMessageId: string | null;
+  errorCode?: string | number | null;
+}
+
+export interface CreateInviteResult {
+  invite: { id: string; phone: string; token: string; shortCode: string; status: string };
+  delivery: InviteDelivery[];
+}
+
 export function useTeam() {
   const clinicId = useSession((s) => s.session?.clinicId);
   return useQuery({
@@ -26,7 +38,7 @@ export function useDoctors() {
 export function useCreateInvite() {
   return useMutation({
     mutationFn: (input: { name?: string; phone: string; role: "doctor" | "receptionist"; doctorId?: string }) =>
-      api.post("/api/v1/team/invites", input),
+      api.post<CreateInviteResult>("/api/v1/team/invites", input),
   });
 }
 

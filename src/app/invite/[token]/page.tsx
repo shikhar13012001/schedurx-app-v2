@@ -5,11 +5,9 @@ import { signInWithPopup } from "firebase/auth";
 import { toast } from "sonner";
 import { Wordmark } from "@/components/shell/brand";
 import { Button } from "@/components/ui/button";
-import { useSession } from "@/stores";
 import { getFirebaseAuth, googleProvider } from "@/lib/firebase";
 
 type InviteDetails = { name: string | null; role: "doctor" | "receptionist"; clinicName: string | null };
-type AcceptedStaff = { role: "doctor" | "receptionist" | "owner"; clinicId: string; doctorId: string | null; fullName: string | null; email: string | null; firebaseUid: string };
 
 // Public — no session required to land here. Uses plain relative fetch()
 // against this app's own /api/invite/[token] routes (server-side proxies to
@@ -19,7 +17,6 @@ type AcceptedStaff = { role: "doctor" | "receptionist" | "owner"; clinicId: stri
 export default function InvitePage() {
   const { token } = useParams<{ token: string }>();
   const router = useRouter();
-  const login = useSession((s) => s.login);
   const [invite, setInvite] = useState<InviteDetails | null | undefined>(undefined);
   const [joining, setJoining] = useState(false);
 
@@ -49,24 +46,17 @@ export default function InvitePage() {
       if (!response.ok || !body?.success) {
         throw new Error(body?.error?.message ?? "Couldn't accept that invite.");
       }
-      const staff: AcceptedStaff = body.data.staff;
 
       // Custom claims apply on next token refresh — force one now.
       await user.getIdToken(true);
 
-      login({
-        name: staff.fullName ?? user.displayName ?? "Team member",
-        email: staff.email ?? user.email ?? "",
-        role: staff.role === "receptionist" ? "receptionist" : "doctor",
-        doctorId: staff.doctorId ?? undefined,
-        clinicName: invite?.clinicName ?? "Your clinic",
-        clinicType: "solo",
-        clinicId: staff.clinicId,
-        firebaseUid: staff.firebaseUid,
-        staffId: staff.firebaseUid,
-      });
+      // acceptInvite starts this person's own short onboarding (their own
+      // profile + working hours — the clinic itself is already fully set
+      // up by whoever invited them). /onboarding resolves the now-signed-in
+      // Firebase user, sees onboarding incomplete, and lands them straight
+      // into that shortened flow instead of Screen 1's Google button.
       toast.success(`Welcome to ${invite?.clinicName ?? "the team"}`);
-      router.replace("/home");
+      router.replace("/onboarding");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't join — try again.");
     } finally {

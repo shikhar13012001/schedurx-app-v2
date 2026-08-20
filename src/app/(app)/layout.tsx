@@ -41,7 +41,7 @@ const SECTIONS = [
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { session, hydrated } = useSession();
+  const { session, hydrated, onboarded } = useSession();
   const { data: notifs } = useNotifications();
   const unread = notifs?.filter((n) => !n.read).length ?? 0;
   const unreadLabel = unread > 9 ? "9+" : String(unread);
@@ -53,7 +53,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useSyncClinicSettings();
 
-  useEffect(() => { if (hydrated && !session) router.replace("/"); }, [hydrated, session, router]);
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!session) return void router.replace("/");
+    // A session can exist but be mid-onboarding — someone who left the flow
+    // partway through and reloaded, or navigated straight to an (app) URL.
+    // /onboarding itself resolves exactly where they left off.
+    if (!onboarded) router.replace("/onboarding");
+  }, [hydrated, session, onboarded, router]);
   useEffect(() => {
     const openAI = () => { if (aiEnabled) setAiOpen(true); };
     window.addEventListener("srx-ai-open", openAI);

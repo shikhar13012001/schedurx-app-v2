@@ -16,7 +16,20 @@ import { Input, Field } from "@/components/ui/input";
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
-const inviteSchema = z.object({ name: z.string().min(2, "Name please"), phone: z.string().min(10, "Valid phone needed"), role: z.enum(["doctor", "receptionist"]) });
+const inviteSchema = z.object({
+  name: z.string().min(2, "Name please"),
+  phone: z.string().refine((value) => {
+    const digits = value.replace(/\D/g, "");
+    const subscriber =
+      digits.length === 12 && digits.startsWith("91")
+        ? digits.slice(2)
+        : digits.length === 11 && digits.startsWith("0")
+          ? digits.slice(1)
+          : digits;
+    return /^[6-9]\d{9}$/.test(subscriber);
+  }, "Enter a valid 10-digit Indian mobile number"),
+  role: z.enum(["doctor", "receptionist"]),
+});
 type Invite = z.infer<typeof inviteSchema>;
 
 export default function TeamPage() {
@@ -71,14 +84,26 @@ export default function TeamPage() {
 
       <Sheet open={open} onOpenChange={setOpen} title="Invite a team member">
         <form className="space-y-5 pt-1" onSubmit={form.handleSubmit(async (value: Invite) => {
-          try {
-            await createInvite.mutateAsync({ name: value.name, phone: value.phone, role: value.role });
-            setOpen(false);
-            form.reset({ role: "doctor", name: "", phone: "" });
-            toast.success(`Invite sent to ${value.name} on WhatsApp.`);
-          } catch (err) {
-            toast.error(err instanceof ApiError ? err.message : "Couldn't send that invite.");
-          }
+            try {
+              const result = await createInvite.mutateAsync({ name: value.name, phone: value.phone, role: value.role });
+              setOpen(false);
+              form.reset({ role: "doctor", name: "", phone: "" });
+              const queued = result.delivery
+                .filter((item) => !["failed", "undelivered"].includes(item.status))
+                .map((item) => (item.channel === "whatsapp" ? "WhatsApp" : "SMS"));
+              const failed = result.delivery
+                .filter((item) => ["failed", "undelivered"].includes(item.status))
+                .map((item) => (item.channel === "whatsapp" ? "WhatsApp" : "SMS"));
+              toast.success(queued.length ? `Invite queued for ${queued.join(" and ")}.` : "Invite created.", {
+                description: failed.length
+                  ? `${failed.join(" and ")} could not be queued.`
+                  : result.delivery.length === 0
+                    ? "Messaging is not configured on the backend."
+                    : undefined,
+              });
+            } catch (err) {
+              toast.error(err instanceof ApiError ? err.message : "Couldn't send that invite.");
+            }
         })}>
           <Field label="Name" error={form.formState.errors.name?.message}><Input {...form.register("name")} placeholder="Dr. Sameer Rao" /></Field>
           <Field label="Phone" error={form.formState.errors.phone?.message}><Input {...form.register("phone")} inputMode="tel" placeholder="98765 43210" /></Field>
