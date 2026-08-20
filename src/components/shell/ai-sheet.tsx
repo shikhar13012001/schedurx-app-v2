@@ -120,6 +120,11 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
       if (clip) {
         const { text: transcript } = await api.post<{ text: string }>("/api/v1/media/transcribe", { audioBase64: clip.base64, filename: clip.filename });
         setText(transcript);
+      } else {
+        // Too short/near-silent to send — useVoiceRecorder already rejected
+        // it rather than risk Whisper hallucinating filler text ("you", etc.)
+        // for a near-empty clip.
+        toast.error("Didn't catch that — hold the button a little longer and try again.");
       }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't transcribe that — try typing instead.");
