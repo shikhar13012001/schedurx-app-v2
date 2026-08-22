@@ -213,7 +213,18 @@ export default function OnboardingPage() {
   useEffect(() => {
     const user = getFirebaseAuth().currentUser;
     if (!user) { setPhase("account"); return; }
-    void resolveExisting().then((handled) => { if (!handled) setPhase("account"); });
+    void resolveExisting().then((handled) => {
+      if (handled) return;
+      // Already authenticated (e.g. a refresh mid-onboarding, or the E2E
+      // suite's custom-token sign-in) but no staff/clinic record yet — same
+      // "brand-new user" case continueWithGoogle() handles inline. Go
+      // straight to the wizard instead of the account gate, which would
+      // otherwise ask an already-signed-in user to sign in again.
+      setFullName(user.displayName ?? "");
+      setFlowType("new");
+      setScreenIdx(0);
+      setPhase("wizard");
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

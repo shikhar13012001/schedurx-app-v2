@@ -3,6 +3,11 @@ import { expect } from "@playwright/test";
 import { deleteTestClinic } from "./test-clinic";
 
 const API_BASE = process.env.E2E_API_BASE_URL ?? "https://api.schedurx.com";
+// /api/test-auth/token is a Next.js route baked into the dashboard itself
+// (src/app/api/test-auth/token/route.ts), not the Express backend — it has
+// to be requested against the dashboard's own origin, same as playwright
+// config's `use.baseURL`, or it 404s on api.schedurx.com instead.
+const APP_BASE = process.env.E2E_BASE_URL ?? "https://app.schedurx.com";
 export const TEST_UID = "srx-e2e-test-user";
 
 function testAuthSecret(): string {
@@ -39,7 +44,7 @@ export async function purgeAnyStaleTestClinic(request: APIRequestContext): Promi
 // why this is safe to run against production). Lands on whichever of
 // /home or /onboarding the app itself decides, exactly like a real sign-in.
 export async function signInAsTestUser(page: Page, request: APIRequestContext): Promise<void> {
-  const response = await request.post(`${API_BASE}/api/test-auth/token`, {
+  const response = await request.post(`${APP_BASE}/api/test-auth/token`, {
     headers: { "x-test-auth-secret": testAuthSecret() },
   });
   expect(response.ok(), `POST /api/test-auth/token failed: ${response.status()} ${await response.text()}`).toBeTruthy();
