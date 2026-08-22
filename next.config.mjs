@@ -67,6 +67,9 @@ const nextConfig = {
             // origin and Firebase/Supabase/ElevenLabs endpoints this app
             // actually calls — note apis.google.com is its own domain, not a
             // *.googleapis.com subdomain, so it needs its own entry too.
+            // The raw-IP:4000 entry this used to carry (from before
+            // api.schedurx.com had TLS) is gone — that port's closed to the
+            // public internet now, so the allowance was dead weight.
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
@@ -74,7 +77,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://*.supabase.co wss://*.supabase.co http://139.59.34.211:4000 https://*.schedurx.com",
+              "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://*.supabase.co wss://*.supabase.co https://*.schedurx.com",
               "frame-src 'self' https://accounts.google.com https://*.firebaseapp.com",
               "frame-ancestors 'none'",
             ].join("; "),
