@@ -9,7 +9,7 @@ import { useQueue, activeQueue } from "@/hooks/use-queue";
 import { useAppointments } from "@/hooks/use-appointments";
 import { usePatients } from "@/hooks/use-patients";
 import type { AdaptedQueueItem } from "@/lib/adapters";
-import { cn, fmtTime } from "@/lib/utils";
+import { cn, fmtTime, toDateKey } from "@/lib/utils";
 
 function waitLabel(arrivedAt?: string) {
   if (!arrivedAt) return "waiting";
@@ -110,6 +110,10 @@ function QueueRow({
 export function QueueList({ doctorId }: { doctorId: string }) {
   const { reorderQueue, jumpTo } = useClinic();
   const { data: queue = [] } = useQueue();
+  // Unfiltered call — QueueRow below already fetches the same query key, so
+  // this shares its cache entry rather than triggering a second request.
+  const { data: appointments = [] } = useAppointments();
+  const { data: patients } = usePatients();
   const active = useMemo(() => activeQueue(queue).filter((q) => q.doctorId === doctorId), [queue, doctorId]);
   const otherActive = useMemo(
     () => activeQueue(queue).filter((q) => q.doctorId !== doctorId).map((q) => q.id),
@@ -117,10 +121,46 @@ export function QueueList({ doctorId }: { doctorId: string }) {
   );
   const currentId = (active.find((q) => q.state === "in_room") ?? active[0])?.id;
 
+  // "The queue is clear" only means nobody's physically checked in — it says
+  // nothing about whether the day actually has bookings. Without this, a
+  // doctor with a full day of scheduled appointments and nobody checked in
+  // yet (e.g. first thing in the morning) saw a blank "clear" state that
+  // read as an empty day.
+  const todayKey = toDateKey(new Date());
+  const scheduledToday = useMemo(
+    () =>
+      appointments
+        .filter((a) => a.doctorId === doctorId && toDateKey(new Date(a.startsAt)) === todayKey && ["confirmed", "tentative"].includes(a.status))
+        .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)),
+    [appointments, doctorId, todayKey]
+  );
+
   if (active.length === 0) {
+    if (scheduledToday.length > 0) {
+      return (
+        <div className="rounded-panel bg-surface-soft px-5 py-6">
+          <p className="font-display text-[22px] font-light tracking-[-0.04em]">No one checked in yet.</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+            {scheduledToday.length} appointment{scheduledToday.length === 1 ? "" : "s"} scheduled today — check a patient in when they arrive.
+          </p>
+          <div className="mt-4 divide-y divide-border/60 border-t border-border/60">
+            {scheduledToday.map((appointment) => {
+              const patient = patients?.find((p) => p.id === appointment.patientId);
+              return (
+                <div key={appointment.id} className="flex min-h-[56px] items-center gap-3">
+                  <span className="w-[54px] shrink-0 text-[12px] tabular-nums text-muted">{fmtTime(appointment.startsAt)}</span>
+                  <p className="min-w-0 flex-1 truncate text-[14px] font-medium">{patient?.name ?? "Patient"}</p>
+                  {appointment.critical && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="Critical" />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="rounded-panel bg-surface-soft px-6 py-10 text-center">
-        <p className="font-display text-[27px] font-light tracking-[-0.045em]">The queue is clear.</p>
+        <p className="font-display text-[27px] font-light tracking-[-0.045em]">No appointments today.</p>
         <p className="mx-auto mt-2 max-w-[280px] text-[13px] leading-relaxed text-muted">
           Check a patient in from search or add a walk-in when someone arrives.
         </p>

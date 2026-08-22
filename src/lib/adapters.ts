@@ -246,10 +246,11 @@ export function fromApiThread(t: ApiThread, messages: ChatMsg[] = []): AdaptedTh
   };
 }
 
-export interface ApiChatMsg { id: string; direction: "inbound" | "outbound"; body: string; createdAt: string }
+export interface ApiChatMsg { id: string; direction: "inbound" | "outbound"; body: string; createdAt: string; viaAI?: boolean }
 
 export function fromApiChatMsg(m: ApiChatMsg): ChatMsg {
-  return { id: m.id, from: m.direction === "outbound" ? "doctor" : "patient", text: m.body, at: m.createdAt };
+  const from = m.direction === "inbound" ? "patient" : m.viaAI ? "ai" : "doctor";
+  return { id: m.id, from, text: m.body, at: m.createdAt };
 }
 
 // ─── Task ─────────────────────────────────────────────────────────────────────

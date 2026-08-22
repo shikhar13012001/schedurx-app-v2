@@ -101,7 +101,11 @@
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
 }
-html { scroll-behavior: smooth; background: rgb(var(--bg)); }
+/* overscroll-behavior-y: none needs to be on both html and body — which one
+   is actually the browser's root scrolling element varies (Safari in
+   particular often scrolls html, not body), so setting it on only one left
+   the rubber-band bounce past the top/bottom still visible on some devices. */
+html { scroll-behavior: smooth; background: rgb(var(--bg)); overscroll-behavior-y: none; }
 body {
   @apply bg-bg text-ink antialiased;
   min-height: 100dvh;
