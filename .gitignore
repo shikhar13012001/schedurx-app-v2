@@ -34,3 +34,8 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# playwright — .auth holds a real signed-in session (storageState), never commit it
+/e2e/.auth/
+/playwright-report/
+/test-results/

@@ -64,3 +64,15 @@ export async function verifyIdTokenFromHeader(authorizationHeader: string | null
     throw new TokenVerificationError("Invalid or expired ID token");
   }
 }
+
+// E2E test sign-in only — see /api/test-auth/token, the only caller. Mints a
+// custom token the client exchanges for a real session via
+// signInWithCustomToken, exactly like a normal sign-in would produce.
+// Deliberately takes no uid parameter: the route hardcodes the one fixed
+// test user this can ever mint for, so this function itself can't become a
+// general "impersonate anyone" primitive even if a caller got confused.
+export async function createTestUserCustomToken(uid: string): Promise<string> {
+  const adminApp = getAdminApp();
+  if (!adminApp) throw new TokenVerificationError("Server is missing Firebase Admin credentials");
+  return getAuth(adminApp).createCustomToken(uid);
+}
