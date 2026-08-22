@@ -102,7 +102,7 @@ type ClinicStore = {
   reorderQueue: (ids: string[]) => Promise<void>;
   addWalkIn: (p: { patientId?: string; doctorId: string; displayName?: string; phoneNumber?: string }) => Promise<void>;
   addAppointment: (input: {
-    doctorId: string; start: string; end?: string; reason?: string; notes?: string;
+    doctorId: string; start: string; end?: string; reason?: string; notes?: string; mode?: string; tokenRequested?: boolean;
     patient: { phone: string; name?: string; age?: number; gender?: string };
   }) => Promise<void>;
   blockTime: (doctorId: string, from: string, minutes: number, reason: string) => Promise<void>;

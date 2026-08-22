@@ -5,6 +5,7 @@ import { ArrowUpRight, CalendarOff, ListTodo, Mic, Search, Sparkles, UserRoundSe
 import { toast } from "sonner";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import ReactMarkdown, { type Components } from "react-markdown";
 import { Sheet } from "@/components/ui/sheet";
 import { AIControl } from "@/components/ui/ai-control";
 import { useSession } from "@/stores";
@@ -32,6 +33,26 @@ async function authHeaders(): Promise<Record<string, string>> {
   const token = await user.getIdToken();
   return { Authorization: `Bearer ${token}` };
 }
+
+// Replies stream through this often enough (bold confirmations, "succeeded
+// X, failed Y" lists for bulk actions per api-v1-assistant.js's system
+// prompt) that plain text was reading as one flat run-on. Component
+// overrides so markup lands as the bubble's existing typography rather than
+// the browser's default (unstyled) block spacing/list markers.
+const MARKDOWN_COMPONENTS: Components = {
+  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-4 last:mb-0">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-2 list-decimal space-y-1 pl-4 last:mb-0">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+  a: ({ children, href }) => (
+    <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-primary">
+      {children}
+    </a>
+  ),
+  code: ({ children }) => <code className="rounded bg-white/10 px-1 py-0.5 text-[13px]">{children}</code>,
+};
 
 function TypingDots() {
   return (
@@ -243,10 +264,10 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
                     </button>
                   )}
                 </div>
-                <p className="mt-3 text-[15px] leading-relaxed text-white/[0.88]">
-                  {replyText || "…"}
+                <div className="mt-3 text-[15px] leading-relaxed text-white/[0.88]">
+                  {replyText ? <ReactMarkdown components={MARKDOWN_COMPONENTS}>{replyText}</ReactMarkdown> : "…"}
                   {isStreamingThis && replyText && <span className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-primary" aria-hidden />}
-                </p>
+                </div>
               </motion.div>
             );
           })}

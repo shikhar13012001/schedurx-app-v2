@@ -46,7 +46,7 @@ export function BlockTimeSheet({ open, onOpenChange, doctorId, prefillDay }: { o
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Block your time">
-      <p className="-mt-1 mb-6 max-w-[360px] text-[13px] leading-relaxed text-muted">You own your calendar. Anyone already booked inside this window gets an automatic reschedule call.</p>
+      <p className="-mt-1 mb-6 max-w-[360px] text-[13px] leading-relaxed text-muted">You own your calendar. Anyone already booked inside this window will be cancelled and notified automatically.</p>
       <div className="space-y-5">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date"><Input type="date" min={toDateKey(new Date())} value={day} onChange={(e) => setDay(e.target.value)} /></Field>

@@ -47,8 +47,10 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
 
     return (
       <div className="rounded-panel bg-surface-2/70 px-6 py-9">
-        <p className="font-display text-[28px] font-light leading-none">Queue is clear.</p>
-        <p className="mt-2 max-w-[320px] text-[14px] leading-relaxed text-muted">Walk-ins and arrivals will appear here as soon as front desk checks them in.</p>
+        <p className="font-display text-[28px] font-light leading-none">{nextAppt ? "Nobody's checked in yet." : "Queue is clear."}</p>
+        <p className="mt-2 max-w-[320px] text-[14px] leading-relaxed text-muted">
+          {nextAppt ? "They'll appear here as soon as front desk checks them in." : "Walk-ins and arrivals will appear here as soon as front desk checks them in."}
+        </p>
         {nextAppt && (
           <p className="mt-4 inline-flex items-center gap-2 rounded-pill bg-surface px-4 py-2.5 text-[12.5px] text-ink shadow-card">
             <CalendarClock size={13} className="text-primary" />

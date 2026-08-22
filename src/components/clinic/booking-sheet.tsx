@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { useClinic, useSession } from "@/stores";
 import { useDoctors } from "@/hooks/use-team";
 import { usePatients } from "@/hooks/use-patients";
-import { useClinicProfile } from "@/hooks/use-clinic-profile";
+import { useAvailableSlots } from "@/hooks/use-available-slots";
 import { ApiError } from "@/lib/api-client";
 import { cn, dateAt, toDateKey } from "@/lib/utils";
 import type { Doctor, VisitMode } from "@/lib/types";
@@ -37,22 +37,6 @@ const MODES: { v: VisitMode; label: string; icon: React.ElementType }[] = [
   { v: "text", label: "Text", icon: MessageSquareText },
 ];
 
-// Discrete bookable times for `day`, spaced by the doctor's slot length,
-// within clinic hours — replaces a freeform time input so a booking can't
-// land off-grid from how the doctor's calendar is actually sliced.
-export function buildSlotOptions(day: string, openingHour: number, closingHour: number, slotMinutes: number) {
-  const isToday = day === toDateKey(new Date());
-  const now = new Date();
-  const slots: string[] = [];
-  for (let mins = openingHour * 60; mins + slotMinutes <= closingHour * 60; mins += slotMinutes) {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    if (isToday && (h < now.getHours() || (h === now.getHours() && m <= now.getMinutes()))) continue;
-    slots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
-  }
-  return slots;
-}
-
 export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone, prefillTime, prefillDay, prefillDoctorId }: {
   open: boolean; onOpenChange: (o: boolean) => void; walkIn?: boolean; prefillPhone?: string; prefillTime?: string; prefillDay?: string; prefillDoctorId?: string;
 }) {
@@ -60,7 +44,6 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
   const { addAppointment, addWalkIn } = useClinic();
   const { data: doctors } = useDoctors();
   const { data: patients } = usePatients();
-  const { data: clinicProfile } = useClinicProfile();
   const DOCTORS = doctors ?? [];
   const PATIENTS = patients ?? [];
 
@@ -87,15 +70,20 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
   const time = watch("time");
 
   const selectedDoctor: Doctor | undefined = DOCTORS.find((d) => d.id === doctorId);
-  const slotOptions = useMemo(
-    () => buildSlotOptions(day || defaultDay, clinicProfile?.openingHour ?? 9, clinicProfile?.closingHour ?? 18, selectedDoctor?.slotMinutes ?? 15),
-    [day, defaultDay, clinicProfile?.openingHour, clinicProfile?.closingHour, selectedDoctor?.slotMinutes]
-  );
+  // Real nettu-scheduler availability — excludes already-booked appointments
+  // and blocked time, unlike the old buildSlotOptions (pure clinic-hours
+  // math with no idea what was already taken, so an already-booked time
+  // stayed selectable right up until the server rejected the finished
+  // form). The slice(11,16) pulls "HH:MM" straight out of each slot's own
+  // ISO string, already stamped in the clinic's local timezone server-side —
+  // same technique whatsapp-agent-tools.js's find_reschedule_slots uses.
+  const { data: availability, isLoading: slotsLoading } = useAvailableSlots({ doctorId, date: day || defaultDay });
+  const slotOptions = useMemo(() => (availability?.slots ?? []).map((s) => s.start.slice(11, 16)), [availability]);
   // Keep the picked time valid as day/doctor change the available grid —
   // preserve a prefilled time if it's still on-grid, otherwise fall back to
   // the first open slot.
   useEffect(() => {
-    if (!open || walkIn) return;
+    if (!open || walkIn || slotsLoading) return;
     if (time && slotOptions.includes(time)) return;
     setValue("time", slotOptions[0] ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -110,6 +98,7 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
         const [h, m] = v.time.split(":").map(Number);
         await addAppointment({
           doctorId: v.doctorId, start: dateAt(v.day, h, m), reason: v.symptoms || undefined,
+          mode: v.mode, tokenRequested: v.token,
           patient: { phone: v.phone, name: v.name },
         });
         toast.success(`Appointment booked · ${v.name}`, {
@@ -164,8 +153,9 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
                 <Input type="date" min={toDateKey(new Date())} {...register("day")} />
               </Field>
               <Field label="Time" error={errors.time?.message} hint={selectedDoctor ? `${selectedDoctor.slotMinutes}-min slots` : undefined}>
-                <select {...register("time")} className="h-12 w-full rounded-field bg-surface-soft px-3.5 text-[14px] text-ink outline-none focus:ring-4 focus:ring-primary/10">
-                  {slotOptions.length === 0 && <option value="">No slots left today</option>}
+                <select {...register("time")} disabled={slotsLoading} className="h-12 w-full rounded-field bg-surface-soft px-3.5 text-[14px] text-ink outline-none focus:ring-4 focus:ring-primary/10 disabled:opacity-60">
+                  {slotsLoading && <option value="">Loading times…</option>}
+                  {!slotsLoading && slotOptions.length === 0 && <option value="">No slots left today</option>}
                   {slotOptions.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </Field>
@@ -187,7 +177,7 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
           </label>
         )}
 
-        <Button size="lg" type="submit" className="w-full" disabled={isSubmitting || (!walkIn && slotOptions.length === 0)}>
+        <Button size="lg" type="submit" className="w-full" disabled={isSubmitting || (!walkIn && (slotsLoading || slotOptions.length === 0))}>
           {walkIn ? "Add to queue" : "Book appointment"}
         </Button>
       </form>

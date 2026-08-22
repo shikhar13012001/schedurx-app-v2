@@ -125,6 +125,8 @@ export interface ApiAppointment {
   source?: string | null;
   symptoms?: string | null;
   notes?: string | null;
+  mode?: string | null;
+  tokenRequested?: boolean | null;
 }
 
 export function fromApiAppointment(a: ApiAppointment): Appointment {
@@ -136,10 +138,12 @@ export function fromApiAppointment(a: ApiAppointment): Appointment {
     durationMin: a.durationMinutes ?? 30,
     status: STATUS_FROM_API[a.status] ?? "tentative",
     source: (a.source as ApptSource) ?? "reception",
-    // pay/mode/meetLink/critical have no backend column yet — clinic-visit
-    // mode defaults to in-person, payment defaults to unpaid/token-free.
-    pay: "unpaid",
-    mode: "clinic",
+    // meetLink/critical still have no backend column — mode/pay do now (see
+    // 20260823_appointment_mode_and_token.sql); this used to hard-default
+    // both, which meant a Video+token booking was silently read back and
+    // displayed as an in-clinic, unpaid one.
+    pay: a.tokenRequested ? "token" : "unpaid",
+    mode: (a.mode as VisitMode) ?? "clinic",
     symptoms: a.symptoms ?? undefined,
     blockReason: a.status === "blocked" ? (a.notes ?? undefined) : undefined,
   };

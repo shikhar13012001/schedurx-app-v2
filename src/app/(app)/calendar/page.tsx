@@ -38,8 +38,8 @@ function TimelineBlock({ appointment, dimmed, onSelect }: { appointment: Appoint
     // as orange in both themes.
     return (
       <div
-        onClick={(event) => event.stopPropagation()}
-        className="absolute inset-x-0 flex cursor-default items-center gap-2.5 overflow-hidden rounded-[24px] border-2 px-4 py-3"
+        onClick={(event) => { event.stopPropagation(); onSelect(appointment); }}
+        className="pressable absolute inset-x-0 flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-[24px] border-2 px-4 py-3"
         style={{
           top: topOf(appointment.startsAt),
           height,
@@ -139,13 +139,14 @@ export default function CalendarPage() {
 
   const onCancelAppointment = async () => {
     if (!actionsFor) return;
-    if (!window.confirm("Cancel this appointment? The patient will be notified.")) return;
+    const isBlock = actionsFor.status === "blocked";
+    if (!window.confirm(isBlock ? "Remove this blocked time? New bookings can land here again." : "Cancel this appointment? The patient will be notified.")) return;
     try {
       await cancelAppointment(actionsFor.id);
-      toast.success("Appointment cancelled");
+      toast.success(isBlock ? "Block removed" : "Appointment cancelled");
       setActionsFor(null);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't cancel that appointment.");
+      toast.error(err instanceof ApiError ? err.message : (isBlock ? "Couldn't remove that block." : "Couldn't cancel that appointment."));
     }
   };
 
@@ -255,13 +256,13 @@ export default function CalendarPage() {
       <BookingSheet open={booking} onOpenChange={setBooking} prefillTime={prefillTime} prefillDay={selectedDayKey} prefillDoctorId={doctorId} />
       <BlockTimeSheet open={blocking} onOpenChange={setBlocking} doctorId={doctorId} prefillDay={selectedDayKey} />
 
-      <Sheet open={!!actionsFor} onOpenChange={(o) => !o && setActionsFor(null)} title="Appointment">
+      <Sheet open={!!actionsFor} onOpenChange={(o) => !o && setActionsFor(null)} title={actionsFor?.status === "blocked" ? "Blocked time" : "Appointment"}>
         <div className="space-y-3">
           <Button size="lg" className="w-full" onClick={() => { setReschedulingFor(actionsFor); setActionsFor(null); }}>
-            Reschedule
+            {actionsFor?.status === "blocked" ? "Shift this block" : "Reschedule"}
           </Button>
           <Button size="lg" variant="danger" className="w-full" onClick={onCancelAppointment}>
-            Cancel appointment
+            {actionsFor?.status === "blocked" ? "Remove block" : "Cancel appointment"}
           </Button>
         </div>
       </Sheet>

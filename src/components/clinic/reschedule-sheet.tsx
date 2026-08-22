@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { useClinic } from "@/stores";
 import { useDoctors } from "@/hooks/use-team";
-import { useClinicProfile } from "@/hooks/use-clinic-profile";
-import { buildSlotOptions } from "@/components/clinic/booking-sheet";
+import { useAvailableSlots } from "@/hooks/use-available-slots";
 import { ApiError } from "@/lib/api-client";
 import { cn, dateAt, toDateKey } from "@/lib/utils";
 import type { Appointment } from "@/lib/types";
@@ -22,7 +21,6 @@ export function RescheduleSheet({ open, onOpenChange, appointment }: {
 }) {
   const { rescheduleAppointment } = useClinic();
   const { data: doctors } = useDoctors();
-  const { data: clinicProfile } = useClinicProfile();
   const DOCTORS = doctors ?? [];
 
   const [day, setDay] = useState(toDateKey(new Date()));
@@ -36,12 +34,12 @@ export function RescheduleSheet({ open, onOpenChange, appointment }: {
   }, [open, appointment]);
 
   const selectedDoctor = DOCTORS.find((d) => d.id === appointment?.doctorId);
-  const slotOptions = useMemo(
-    () => buildSlotOptions(day, clinicProfile?.openingHour ?? 9, clinicProfile?.closingHour ?? 18, selectedDoctor?.slotMinutes ?? 15),
-    [day, clinicProfile?.openingHour, clinicProfile?.closingHour, selectedDoctor?.slotMinutes]
-  );
+  // Real nettu-scheduler availability — see booking-sheet.tsx's identical
+  // comment for why this replaced the old clinic-hours-only math.
+  const { data: availability, isLoading: slotsLoading } = useAvailableSlots({ doctorId: appointment?.doctorId, date: day });
+  const slotOptions = useMemo(() => (availability?.slots ?? []).map((s) => s.start.slice(11, 16)), [availability]);
   useEffect(() => {
-    if (!open) return;
+    if (!open || slotsLoading) return;
     if (time && slotOptions.includes(time)) return;
     setTime(slotOptions[0] ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,13 +76,14 @@ export function RescheduleSheet({ open, onOpenChange, appointment }: {
             <Input type="date" min={toDateKey(new Date())} value={day} onChange={(e) => setDay(e.target.value)} />
           </Field>
           <Field label="Time" hint={selectedDoctor ? `${selectedDoctor.slotMinutes}-min slots` : undefined}>
-            <select value={time} onChange={(e) => setTime(e.target.value)} className="h-12 w-full rounded-field bg-surface-soft px-3.5 text-[14px] text-ink outline-none focus:ring-4 focus:ring-primary/10">
-              {slotOptions.length === 0 && <option value="">No slots left that day</option>}
+            <select value={time} onChange={(e) => setTime(e.target.value)} disabled={slotsLoading} className="h-12 w-full rounded-field bg-surface-soft px-3.5 text-[14px] text-ink outline-none focus:ring-4 focus:ring-primary/10 disabled:opacity-60">
+              {slotsLoading && <option value="">Loading times…</option>}
+              {!slotsLoading && slotOptions.length === 0 && <option value="">No slots left that day</option>}
               {slotOptions.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </Field>
         </div>
-        <Button size="lg" className="w-full" disabled={submitting || !time} onClick={onSubmit}>
+        <Button size="lg" className="w-full" disabled={submitting || slotsLoading || !time} onClick={onSubmit}>
           Reschedule
         </Button>
       </div>
