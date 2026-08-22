@@ -25,6 +25,9 @@ const TOOL_PROGRESS_LABEL: Record<string, string> = {
   find_next_free_slot: "Checking availability…",
   find_patient_history: "Looking up patient…",
   add_task: "Adding task…",
+  list_appointments: "Finding appointments…",
+  reschedule_appointments: "Rescheduling…",
+  cancel_appointments: "Cancelling…",
 };
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -118,6 +121,20 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
     if (!open) { audioRef.current?.pause(); setSpeakingId(null); }
   }, [open]);
 
+  // iOS Safari only treats HTMLMediaElement.play() as user-initiated when
+  // it's called synchronously inside the gesture handler itself — anything
+  // after an `await` (the /speak fetch, or the reply-streaming that finishes
+  // well after the mic gesture that started it) no longer counts, and
+  // .play() rejects with NotAllowedError. Calling play() synchronously here,
+  // even with nothing loaded yet, "unlocks" this specific <audio> element for
+  // the rest of the session — later programmatic play() calls on the same
+  // element (in speak(), including the auto-read-back after a voice
+  // question) then succeed without needing their own fresh gesture.
+  function primeAudioForIOS() {
+    if (!audioRef.current) audioRef.current = new Audio();
+    audioRef.current.play().catch(() => {});
+  }
+
   // Was the browser's own SpeechRecognition (webkitSpeechRecognition) —
   // client-side only, no error path when the mic was blocked or Chrome's
   // recognizer lost its connection to Google's speech backend, which showed
@@ -126,6 +143,7 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
   // mic already uses successfully: useVoiceRecorder() + POST
   // /api/v1/media/transcribe (real OpenAI Whisper, server-side).
   const startVoice = async () => {
+    primeAudioForIOS();
     try {
       await recorder.start();
       askedByVoiceRef.current = true;
@@ -159,12 +177,19 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
   // (503) rather than showing an error for what's an optional enhancement.
   const speak = async (messageId: string, replyText: string) => {
     if (!replyText.trim()) return;
+    // Priming again here (on top of startVoice's) covers replaying a
+    // typed-question's reply, which never went through a mic gesture — this
+    // call itself is still synchronous within the button's onClick.
+    primeAudioForIOS();
     try {
       setSpeakingId(messageId);
       const { audioBase64 } = await api.post<{ audioBase64: string }>("/api/v1/assistant/speak", { text: replyText });
-      const audio = new Audio(`data:audio/mpeg;base64,${audioBase64}`);
-      audioRef.current?.pause();
+      // Reuse the already-primed element rather than a fresh `new Audio()` —
+      // the iOS unlock is per-element, not global.
+      const audio = audioRef.current ?? new Audio();
       audioRef.current = audio;
+      audio.pause();
+      audio.src = `data:audio/mpeg;base64,${audioBase64}`;
       audio.onended = () => setSpeakingId((id) => (id === messageId ? null : id));
       await audio.play();
     } catch (err) {
