@@ -133,17 +133,27 @@ export default function CalendarPage() {
   // whichever day was open, positioned only by time-of-day (so old bookings
   // bled onto "today", and any outside 8am–10pm rendered off-canvas).
   const { data: rawDayAppointments = [] } = useAppointments({ date: selectedDayKey, doctorId });
-  // A block created over an existing booking auto-cancels it (see
-  // appointmentSvc.bookAppointment's conflict-cancel step) — the cancelled
-  // appointment still exists as a real row, but rendering its own dimmed
-  // tile UNDERNEATH the blocked tile now covering the same time is just
-  // confusing clutter, not useful context. Drop a cancelled appointment from
-  // the timeline once a block fully covers its slot; keep it if it was
-  // cancelled for some other reason and no block actually overlaps it.
+  // Two distinct reasons a cancelled row shouldn't render:
+  //  1. It's a cancelled BLOCK (no patientId — that's what a block is: real
+  //     calendar time with nobody attached). A removed/expired block has no
+  //     informational value once gone — "Remove block" un-cancels nothing,
+  //     it cancels the block row itself (see api-v1-appointments.js's DELETE
+  //     handler, shared with real-appointment cancel), and the row staying
+  //     in the query result forever after is expected — it just shouldn't
+  //     still occupy space on the timeline. Confirmed live: every block a
+  //     doctor had ever removed was still rendering as a dimmed ghost tile
+  //     ("block times still appear after being deleted").
+  //  2. It's a cancelled real appointment a block created afterward now
+  //     fully covers (the auto-cancel-on-conflict path) — showing its own
+  //     dimmed tile underneath the new blocked tile is just clutter.
+  // A cancelled real appointment NOT covered by a block still renders
+  // dimmed — that's useful staff context ("this patient cancelled"), unlike
+  // either case above.
   const dayAppointments = useMemo(() => {
     const blocks = rawDayAppointments.filter((a) => a.status === "blocked");
     return rawDayAppointments.filter((a) => {
       if (a.status !== "cancelled") return true;
+      if (!a.patientId) return false;
       const aStart = +new Date(a.startsAt);
       const aEnd = aStart + a.durationMin * 60_000;
       return !blocks.some((b) => {

@@ -30,7 +30,15 @@ export const useSession = create<SessionStore>()(
     (set) => ({
       session: null, onboarded: true, hydrated: false,
       login: (session) => set({ session }),
-      logout: () => { void signOut(getFirebaseAuth()); queryClient.clear(); set({ session: null }); },
+      logout: () => {
+        void signOut(getFirebaseAuth());
+        queryClient.clear();
+        // Belt-and-suspenders alongside sw.js's own /api/ cache exclusion —
+        // wipes anything a service worker cached before that exclusion
+        // shipped, or under a future path this list doesn't yet cover.
+        navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_CACHE" });
+        set({ session: null });
+      },
       setOnboarded: (onboarded) => set({ onboarded }),
       setHydrated: () => set({ hydrated: true }),
     }),
