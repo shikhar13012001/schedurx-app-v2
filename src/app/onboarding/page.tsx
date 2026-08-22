@@ -540,7 +540,7 @@ export default function OnboardingPage() {
                 <h1 className="text-balance font-display text-[clamp(2.6rem,10vw,3.8rem)] font-light leading-[0.96] tracking-[-0.05em]">How is your<br />practice set up?</h1>
                 <div className="mt-9 grid grid-cols-2 gap-2.5">
                   {([{ v: "solo" as const, icon: UserRound, t: "Solo practice", d: "One doctor, one team" }, { v: "polyclinic" as const, icon: Building2, t: "Polyclinic", d: "Multiple doctors" }]).map((o) => (
-                    <button key={o.v} onClick={() => setPracticeType(o.v)} className={cn("pressable rounded-panel p-5 text-left shadow-card transition-all", practiceType === o.v ? "bg-charcoal text-white" : "bg-surface hover:bg-surface-soft")}>
+                    <button key={o.v} onClick={() => setPracticeType(o.v)} className={cn("pressable rounded-panel p-5 text-left shadow-card transition-all", practiceType === o.v ? "bg-charcoal text-white outline outline-2 outline-offset-2 outline-primary" : "bg-surface hover:bg-surface-soft")}>
                       <o.icon size={20} className={practiceType === o.v ? "text-primary" : "text-muted"} />
                       <p className="mt-5 text-[15px] font-medium">{o.t}</p>
                       <p className={cn("text-[12px]", practiceType === o.v ? "text-white/55" : "text-muted")}>{o.d}</p>
@@ -553,7 +553,7 @@ export default function OnboardingPage() {
                     <p className="mb-2 text-[13px] text-muted">I work here as</p>
                     <div className="grid grid-cols-2 gap-2">
                       {(["doctor", "receptionist"] as const).map((r) => (
-                        <button key={r} onClick={() => setFounderRole(r)} className={cn("pressable h-12 rounded-pill text-[13px] font-medium transition-colors", founderRole === r ? "bg-charcoal text-white" : "bg-surface-2 text-muted")}>
+                        <button key={r} onClick={() => setFounderRole(r)} className={cn("pressable h-12 rounded-pill text-[13px] font-medium transition-colors", founderRole === r ? "bg-charcoal text-white outline outline-2 outline-offset-2 outline-primary" : "bg-surface-2 text-muted")}>
                           {r === "doctor" ? "Doctor" : "Receptionist"}
                         </button>
                       ))}
@@ -662,7 +662,7 @@ export default function OnboardingPage() {
                           <p className="mb-2 text-[13px] text-muted">Consultation modes</p>
                           <div className="flex flex-wrap gap-2">
                             {["In-clinic", "Online", "Home visit"].map((m) => (
-                              <button key={m} onClick={() => setConsultationModes((v) => (v.includes(m) ? v.filter((x) => x !== m) : [...v, m]))} className={cn("pressable h-10 rounded-pill px-4 text-[13px]", consultationModes.includes(m) ? "bg-charcoal text-white" : "bg-surface-2 text-muted")}>
+                              <button key={m} onClick={() => setConsultationModes((v) => (v.includes(m) ? v.filter((x) => x !== m) : [...v, m]))} className={cn("pressable h-10 rounded-pill px-4 text-[13px]", consultationModes.includes(m) ? "bg-charcoal text-white outline outline-2 outline-offset-2 outline-primary" : "bg-surface-2 text-muted")}>
                                 {m}
                               </button>
                             ))}

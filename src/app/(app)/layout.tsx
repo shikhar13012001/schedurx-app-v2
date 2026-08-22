@@ -10,6 +10,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Wordmark } from "@/components/shell/brand";
 import { BottomDock, TAB_ORDER } from "@/components/shell/bottom-dock";
 import { AiSheet } from "@/components/shell/ai-sheet";
+import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { Avatar } from "@/components/ui/avatar";
 import { AIControl } from "@/components/ui/ai-control";
 import { useClinic, useSession } from "@/stores";
@@ -114,7 +115,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh bg-bg md:p-4">
       <aside className="srx-glass fixed inset-y-4 left-4 z-40 hidden w-[238px] flex-col rounded-[34px] p-4 md:flex">
-        <div className="px-2 pt-2"><Wordmark size="lg" /></div>
+        <div className="flex items-center justify-between px-2 pt-2">
+          <Wordmark size="lg" />
+          <ThemeToggle className="h-9 w-9 bg-surface/70 shadow-none" />
+        </div>
         <p className="mt-1 px-2 text-[12px] text-muted">{session.clinicName}</p>
 
         <nav className="mt-8 flex-1 space-y-1 overflow-y-auto pr-1">
@@ -144,6 +148,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <header className={cn("flex items-center justify-between px-5 pb-1 pt-[max(16px,env(safe-area-inset-top))] md:hidden", detailMode && "hidden")}>
           <button onClick={() => router.push("/profile")} className="pressable rounded-full" aria-label="Profile"><Avatar id={session.email} name={session.name} size={42} /></button>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <button onClick={() => router.push("/notifications")} className="pressable relative flex h-11 w-11 items-center justify-center rounded-full bg-surface shadow-card" aria-label="Notifications">
               <Bell size={18} />
               {unread > 0 && <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[9.5px] font-medium leading-none text-white ring-2 ring-surface">{unreadLabel}</span>}

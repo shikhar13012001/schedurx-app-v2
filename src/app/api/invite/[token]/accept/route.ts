@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdTokenFromHeader, TokenVerificationError } from "@/lib/firebase-admin";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { proxyToBackend } from "@/lib/backend-proxy";
 
 // Server-side only — proxies to the backend's INTERNAL_API_KEY-gated
 // POST /internal/staff/invites/:token/accept, same division as /api/onboarding.
@@ -40,11 +41,9 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
 
   const body = await request.json().catch(() => ({}));
 
-  const upstream = await fetch(`${apiBaseUrl}/internal/staff/invites/${params.token}/accept`, {
+  return proxyToBackend(`${apiBaseUrl}/internal/staff/invites/${params.token}/accept`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${internalApiKey}` },
     body: JSON.stringify({ ...body, firebaseUid: uid }),
   });
-  const data = await upstream.json().catch(() => null);
-  return NextResponse.json(data, { status: upstream.status });
 }

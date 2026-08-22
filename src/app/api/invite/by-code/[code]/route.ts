@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { proxyToBackend } from "@/lib/backend-proxy";
 
 // Mirrors ../[token]/route.ts — proxies to the backend's INTERNAL_API_KEY-gated
 // GET /internal/staff/invites/by-code/:shortCode, for the account screen's
@@ -27,9 +28,7 @@ export async function GET(request: NextRequest, { params }: { params: { code: st
     );
   }
 
-  const upstream = await fetch(`${apiBaseUrl}/internal/staff/invites/by-code/${params.code}`, {
+  return proxyToBackend(`${apiBaseUrl}/internal/staff/invites/by-code/${params.code}`, {
     headers: { Authorization: `Bearer ${internalApiKey}` },
   });
-  const data = await upstream.json().catch(() => null);
-  return NextResponse.json(data, { status: upstream.status });
 }

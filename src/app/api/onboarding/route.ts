@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdTokenFromHeader, TokenVerificationError } from "@/lib/firebase-admin";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { proxyToBackend } from "@/lib/backend-proxy";
 
 // Server-side only — proxies to the backend's bootstrap-only POST /internal/clinic
 // using INTERNAL_API_KEY, which must never reach the browser. This route is the
@@ -46,12 +47,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: { code: "MISSING_FIELDS", message: "clinicName is required" } }, { status: 422 });
   }
 
-  const upstream = await fetch(`${apiBaseUrl}/internal/clinic`, {
+  return proxyToBackend(`${apiBaseUrl}/internal/clinic`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${internalApiKey}` },
     body: JSON.stringify({ ...body, firebaseUid: uid }),
   });
-
-  const data = await upstream.json().catch(() => null);
-  return NextResponse.json(data, { status: upstream.status });
 }

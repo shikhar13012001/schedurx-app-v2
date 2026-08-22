@@ -49,7 +49,7 @@ export type Mode = "system" | "light" | "dark";
 type ThemeStore = { theme: ThemeId; mode: Mode; setTheme: (t: ThemeId) => void; setMode: (m: Mode) => void };
 export const useTheme = create<ThemeStore>()(
   persist(
-    (set) => ({ theme: "evergreen", mode: "system", setTheme: (theme) => set({ theme }), setMode: (mode) => set({ mode }) }),
+    (set) => ({ theme: "evergreen", mode: "light", setTheme: (theme) => set({ theme }), setMode: (mode) => set({ mode }) }),
     { name: "srx-theme", storage: createJSONStorage(() => localStorage) }
   )
 );
