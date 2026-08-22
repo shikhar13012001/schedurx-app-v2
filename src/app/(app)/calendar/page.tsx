@@ -132,7 +132,27 @@ export default function CalendarPage() {
   // every appointment ever booked for the doctor and rendered all of them on
   // whichever day was open, positioned only by time-of-day (so old bookings
   // bled onto "today", and any outside 8am–10pm rendered off-canvas).
-  const { data: dayAppointments = [] } = useAppointments({ date: selectedDayKey, doctorId });
+  const { data: rawDayAppointments = [] } = useAppointments({ date: selectedDayKey, doctorId });
+  // A block created over an existing booking auto-cancels it (see
+  // appointmentSvc.bookAppointment's conflict-cancel step) — the cancelled
+  // appointment still exists as a real row, but rendering its own dimmed
+  // tile UNDERNEATH the blocked tile now covering the same time is just
+  // confusing clutter, not useful context. Drop a cancelled appointment from
+  // the timeline once a block fully covers its slot; keep it if it was
+  // cancelled for some other reason and no block actually overlaps it.
+  const dayAppointments = useMemo(() => {
+    const blocks = rawDayAppointments.filter((a) => a.status === "blocked");
+    return rawDayAppointments.filter((a) => {
+      if (a.status !== "cancelled") return true;
+      const aStart = +new Date(a.startsAt);
+      const aEnd = aStart + a.durationMin * 60_000;
+      return !blocks.some((b) => {
+        const bStart = +new Date(b.startsAt);
+        const bEnd = bStart + b.durationMin * 60_000;
+        return aStart < bEnd && aEnd > bStart;
+      });
+    });
+  }, [rawDayAppointments]);
   const nowTop = topOf(now.toISOString());
   const nowVisible = isToday && nowTop > 0 && nowTop < TIMELINE_HEIGHT;
   const slotMinutes = doctors?.find((d) => d.id === doctorId)?.slotMinutes ?? 15;

@@ -28,6 +28,9 @@ const TOOL_PROGRESS_LABEL: Record<string, string> = {
   list_appointments: "Finding appointments…",
   reschedule_appointments: "Rescheduling…",
   cancel_appointments: "Cancelling…",
+  list_patient_conversations: "Checking messages…",
+  send_message_to_patient: "Sending message…",
+  notify_appointment_delay: "Notifying patients…",
 };
 
 async function authHeaders(): Promise<Record<string, string>> {
