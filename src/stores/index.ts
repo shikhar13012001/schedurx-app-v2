@@ -112,7 +112,7 @@ type ClinicStore = {
   addAppointment: (input: {
     doctorId: string; start: string; end?: string; reason?: string; notes?: string; mode?: string; tokenRequested?: boolean;
     patient: { phone: string; name?: string; age?: number; gender?: string };
-  }) => Promise<void>;
+  }) => Promise<{ tokenLinkSent?: boolean; checkoutUrl?: string } | void>;
   blockTime: (doctorId: string, from: string, minutes: number, reason: string) => Promise<void>;
   rescheduleAppointment: (appointmentId: string, doctorId: string, newStart: string, reason?: string) => Promise<void>;
   cancelAppointment: (appointmentId: string) => Promise<void>;
@@ -170,8 +170,14 @@ export const useClinic = create<ClinicStore>()((set, get) => ({
     await invalidate(["queue", clinicId()]);
   },
   addAppointment: async (input) => {
-    await api.post("/api/v1/appointments", input);
+    // A token-requested booking doesn't create an Appointment yet (pay-first —
+    // see appointment-service.js's createPendingTokenBooking) — the response
+    // is { pendingBookingId, checkoutUrl, tokenLinkSent } instead of
+    // { appointment }, so the caller needs the raw result to know which
+    // happened, not just whether the request succeeded.
+    const result = await api.post<{ appointment?: unknown; tokenLinkSent?: boolean; checkoutUrl?: string }>("/api/v1/appointments", input);
     await invalidate(["appointments", clinicId()]);
+    return input.tokenRequested ? { tokenLinkSent: result.tokenLinkSent, checkoutUrl: result.checkoutUrl } : undefined;
   },
   blockTime: async (doctorId, from, minutes, reason) => {
     const end = new Date(new Date(from).getTime() + minutes * 60000).toISOString();

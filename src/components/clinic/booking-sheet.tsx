@@ -96,14 +96,27 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
         toast.success(`${v.name} added to the queue`, { description: known ? "Existing file pulled up for the doctor." : "New patient file starts from this visit." });
       } else {
         const [h, m] = v.time.split(":").map(Number);
-        await addAppointment({
+        const result = await addAppointment({
           doctorId: v.doctorId, start: dateAt(v.day, h, m), reason: v.symptoms || undefined,
           mode: v.mode, tokenRequested: v.token,
           patient: { phone: v.phone, name: v.name },
         });
-        toast.success(`Appointment booked · ${v.name}`, {
-          description: v.token ? "Token payment link sent on WhatsApp — slot locks on payment." : "Confirmation sent on WhatsApp.",
-        });
+        if (v.token) {
+          // Pay-first: nothing is actually booked yet — the slot is held
+          // until the patient pays via the link. Report what really
+          // happened, not an assumed success.
+          if (result?.tokenLinkSent) {
+            toast.success(`Payment link sent to ${v.name}`, { description: "Slot is held — it books automatically once they pay." });
+          } else {
+            toast(`Slot held for ${v.name}`, {
+              description: result?.checkoutUrl
+                ? "Couldn't send the WhatsApp link automatically — copy and share it yourself."
+                : "Couldn't confirm the payment link was sent — check with the patient.",
+            });
+          }
+        } else {
+          toast.success(`Appointment booked · ${v.name}`, { description: "Confirmation sent on WhatsApp." });
+        }
       }
       onOpenChange(false);
     } catch (err) {
