@@ -10,6 +10,7 @@ export interface ClinicProfile {
   openingHour: number | null;
   closingHour: number | null;
   workingDays: string[] | null;
+  googleReviewUrl: string | null;
 }
 
 export function useClinicProfile() {

@@ -64,7 +64,7 @@ function WorkflowSheet({ open, onOpenChange, workflow, onSave }: {
             ))}
           </div>
         </div>
-        <Field label="Message" hint="Use {{patientName}}, {{doctorName}}, {{clinicName}}, {{apptTime}}, {{bookingUrl}}">
+        <Field label="Message" hint="Use {{patientName}}, {{doctorName}}, {{clinicName}}, {{apptTime}}, {{bookingUrl}}, {{reviewUrl}}, {{textCommsUrl}}">
           <Textarea rows={3} placeholder="Hi {{patientName}}, reminder: your appointment with {{doctorName}} is {{apptTime}}." value={draft.template} onChange={(e) => setDraft({ ...draft, template: e.target.value })} />
         </Field>
         <label className="flex items-center justify-between rounded-panel bg-surface-soft px-4 py-4">

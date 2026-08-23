@@ -2,12 +2,14 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Bell, Check, Download, FileText, LogOut, Sparkles, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { useSession, useTheme, useClinic, type Settings, type ThemeId, type Mode } from "@/stores";
 import { useDoctors, useUpdateDoctor } from "@/hooks/use-team";
+import { useClinicProfile } from "@/hooks/use-clinic-profile";
 import { subscribeToPush } from "@/hooks/use-push-subscription";
-import { ApiError } from "@/lib/api-client";
+import { api, ApiError } from "@/lib/api-client";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -29,6 +31,8 @@ export default function ProfilePage() {
   const { settings, setSetting } = useClinic();
   const { data: doctors } = useDoctors();
   const updateDoctor = useUpdateDoctor();
+  const { data: clinicProfile } = useClinicProfile();
+  const queryClient = useQueryClient();
   const isDoctor = session?.role === "doctor";
   // Same fallback as the home page: an owner isn't necessarily linked to a
   // specific Doctor row (Staff.doctorId can be null), so fall back to the
@@ -37,6 +41,28 @@ export default function ProfilePage() {
   const [canInstall, setCanInstall] = React.useState(false);
   const [fee, setFee] = React.useState<string>("");
   const [slotMinutes, setSlotMinutes] = React.useState<string>("");
+  const [googleReviewUrl, setGoogleReviewUrl] = React.useState<string>("");
+  const [savingReviewUrl, setSavingReviewUrl] = React.useState(false);
+
+  React.useEffect(() => {
+    if (clinicProfile) setGoogleReviewUrl(clinicProfile.googleReviewUrl ?? "");
+  }, [clinicProfile?.googleReviewUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reviewUrlDirty = (clinicProfile?.googleReviewUrl ?? "") !== googleReviewUrl;
+
+  async function saveGoogleReviewUrl() {
+    if (!reviewUrlDirty) return;
+    setSavingReviewUrl(true);
+    try {
+      await api.patch("/api/v1/clinic", { googleReviewUrl: googleReviewUrl.trim() || null });
+      await queryClient.invalidateQueries({ queryKey: ["clinic-profile"] });
+      toast.success("Review link saved");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't save the review link");
+    } finally {
+      setSavingReviewUrl(false);
+    }
+  }
 
   // Sync from the server only when the *doctor identity* changes (initial
   // load, or switching to a different doctor's record) — never when just
@@ -172,6 +198,14 @@ export default function ProfilePage() {
             </div>
             <Button size="sm" className="mt-4 w-full sm:w-auto" disabled={!practiceDirty || updateDoctor.isPending} onClick={savePractice}>
               {updateDoctor.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
+          <div className="border-t border-border/60 pt-5">
+            <Field label="Google review link" hint="Sent to patients after a visit — shows up wherever a workflow message references it.">
+              <Input value={googleReviewUrl} onChange={(e) => setGoogleReviewUrl(e.target.value)} placeholder="https://g.page/r/…/review" />
+            </Field>
+            <Button size="sm" className="mt-4 w-full sm:w-auto" disabled={!reviewUrlDirty || savingReviewUrl} onClick={saveGoogleReviewUrl}>
+              {savingReviewUrl ? "Saving…" : "Save changes"}
             </Button>
           </div>
         </SettingGroup>
