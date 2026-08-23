@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Banknote, CreditCard, ExternalLink, Lock, ReceiptText, Share2, Smartphone } from "lucide-react";
 import { toast } from "sonner";
-import { useInvoices, useSubscription } from "@/hooks/use-billing";
+import { useInvoices, useSubscription, useAddonCatalog, useUpdateSubscriptionAddon } from "@/hooks/use-billing";
 import { usePatients } from "@/hooks/use-patients";
 import { useFindOrCreateThread } from "@/hooks/use-threads";
 import { useClinic, useSession } from "@/stores";
@@ -71,6 +71,62 @@ function SubscriptionCard() {
   );
 }
 
+// Custom plan only — Stripe's Customer Portal can only switch between whole
+// base plans, it can't toggle individual addon line items on a subscription
+// (see stripe-subscription-service.js's file header for why), so this is
+// its own small UI hitting the backend's own addon-delta API.
+function AddonManager() {
+  const { data: subscription } = useSubscription();
+  const { data: catalog } = useAddonCatalog();
+  const updateAddon = useUpdateSubscriptionAddon();
+  const [pendingAddonId, setPendingAddonId] = useState<string | null>(null);
+
+  if (!subscription?.plan || subscription.plan.planId !== "custom" || !subscription.hasStripeCustomer || !catalog) return null;
+
+  const activeAddonIds = new Set(subscription.addons);
+
+  const toggle = async (addonId: string) => {
+    setPendingAddonId(addonId);
+    try {
+      await updateAddon.mutateAsync({ addonId, action: activeAddonIds.has(addonId) ? "remove" : "add" });
+      toast.success(activeAddonIds.has(addonId) ? "Add-on removed" : "Add-on added");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't update that add-on.");
+    } finally {
+      setPendingAddonId(null);
+    }
+  };
+
+  return (
+    <section className="rounded-panel bg-surface-soft px-5 py-4">
+      <p className="text-[13px] font-medium">Add-ons</p>
+      <div className="mt-3 divide-y divide-border/60">
+        {Object.values(catalog).map((addon) => {
+          const active = activeAddonIds.has(addon.id);
+          return (
+            <div key={addon.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+              <div className="min-w-0">
+                <p className="truncate text-[13.5px] font-medium">{addon.name}</p>
+                <p className="text-[11.5px] text-muted">{inr(addon.monthlyPaise / 100)}/month{addon.usageBased ? " + usage" : ""}</p>
+              </div>
+              <button
+                onClick={() => toggle(addon.id)}
+                disabled={pendingAddonId === addon.id}
+                className={cn(
+                  "pressable shrink-0 rounded-full px-4 py-2 text-[12px] font-medium disabled:opacity-50",
+                  active ? "bg-white text-ink shadow-card" : "bg-charcoal text-white",
+                )}
+              >
+                {pendingAddonId === addon.id ? "…" : active ? "Remove" : "Add"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export default function BillingPage() {
   const { settings, reply } = useClinic();
   const role = useSession((s) => s.session?.role);
@@ -83,6 +139,7 @@ export default function BillingPage() {
     return (
       <div className="mx-auto max-w-2xl space-y-5 pt-8">
         <SubscriptionCard />
+        <AddonManager />
         <Empty icon={Lock} title="Billing is switched off" body={role === "doctor" ? "Turn it on from Profile → Practice to track payments and invoices." : "The doctor hasn’t enabled billing for this clinic yet."} />
       </div>
     );
@@ -116,6 +173,7 @@ export default function BillingPage() {
       </header>
 
       <SubscriptionCard />
+      <AddonManager />
 
       <section className="atmosphere atmosphere-orange-right relative overflow-hidden rounded-hero bg-stone px-5 py-7 text-charcoal shadow-float dark:text-white sm:px-7">
         <div className="relative z-10">
