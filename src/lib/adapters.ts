@@ -222,6 +222,9 @@ export interface ApiThread {
   lastMessageAt?: string | null;
   triage?: string | null;
   aiSummary?: string | null;
+  doctorId?: string | null;
+  scope?: "general" | "booking" | null;
+  appointmentId?: string | null;
 }
 
 const VALID_TRIAGE: Triage[] = ["critical", "moderate", "routine"];
@@ -236,11 +239,14 @@ export function fromApiThread(t: ApiThread, messages: ChatMsg[] = []): AdaptedTh
     id: t.id,
     patientId: t.patientId ?? "",
     lastMessageAt: t.lastMessageAt ?? undefined,
-    // doctorId/paid still have no backend column — those still default.
+    // paid still has no backend column — still defaults. doctorId/scope/
+    // appointmentId are real now (Phase 4's Thread.doctorId/scope/appointmentId).
     // triage/aiSummary are real now (webhooks-twilio.js classifies on inbound
     // and stamps the Thread row); "routine"/"" cover a thread from before
     // that was wired up, or one the classifier hasn't reached yet.
-    doctorId: "",
+    doctorId: t.doctorId ?? "",
+    scope: t.scope ?? "general",
+    appointmentId: t.appointmentId ?? undefined,
     triage: t.triage && VALID_TRIAGE.includes(t.triage as Triage) ? (t.triage as Triage) : "routine",
     unread: t.unreadCount ?? 0,
     paid: false,

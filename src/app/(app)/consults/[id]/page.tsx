@@ -72,7 +72,7 @@ export default function ThreadPage() {
           <Avatar id={patient.id} name={patient.name} size={42} />
           <span className="min-w-0">
             <span className="block truncate text-[15px] font-medium tracking-[-0.025em]">{patient.name}</span>
-            <span className="block text-[11.5px] text-muted">{patient.age} yrs · patient file{thread.paid ? " · Paid chat" : ""}</span>
+            <span className="block text-[11.5px] text-muted">{patient.age} yrs · patient file{thread.paid ? " · Paid chat" : ""}{thread.scope === "booking" ? " · This booking" : ""}</span>
           </span>
         </Link>
         {session.role === "receptionist" && !thread.escalated && (

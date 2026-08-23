@@ -35,6 +35,9 @@ export interface ChatMsg { id: string; from: "patient" | "doctor" | "ai"; text: 
 export interface Thread {
   id: string; patientId: string; doctorId: string; triage: Triage; unread: number;
   paid: boolean; aiSummary: string; escalated?: boolean; messages: ChatMsg[];
+  // Phase 4: a thread tied to one specific booking (vs. a general,
+  // phone-resolved conversation) — see api-v1-threads.js's doctor isolation.
+  scope?: "general" | "booking"; appointmentId?: string;
 }
 
 export interface CallLog { id: string; at: string; name: string; phone: string; lang: string; durationSec: number; outcome: "booked" | "rescheduled" | "reminder_confirmed" | "info" | "recovered_missed"; summary: string; }

@@ -93,6 +93,7 @@ function ConsultsInner() {
                       {thread.triage === "critical" ? <span className="text-danger">Needs attention</span> : thread.triage === "moderate" ? <span className="text-muted">Needs reply</span> : <span className="text-faint">Routine</span>}
                       {thread.escalated && <span className="inline-flex items-center gap-1 text-danger"><ShieldAlert size={10} /> Escalated</span>}
                       {thread.paid && <span className="text-faint">· Paid chat</span>}
+                      {thread.scope === "booking" && <span className="text-faint">· Booking</span>}
                     </div>
                   </div>
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-soft transition-transform group-hover:translate-x-0.5"><ArrowRight size={17} /></span>
