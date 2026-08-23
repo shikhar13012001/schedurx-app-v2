@@ -11,7 +11,7 @@ import { useSession } from "@/stores";
 import { useThreads } from "@/hooks/use-threads";
 import { useAppointments } from "@/hooks/use-appointments";
 import { usePatients } from "@/hooks/use-patients";
-import { cn, fmtTime, relTime } from "@/lib/utils";
+import { cn, fmtTime, relTime, triageLabel } from "@/lib/utils";
 
 const TRIAGE_ORDER = { critical: 0, moderate: 1, routine: 2 } as const;
 
@@ -90,7 +90,7 @@ function ConsultsInner() {
                     </div>
                     <p className={cn("mt-1 line-clamp-1 text-[13px]", thread.unread ? "text-ink/[0.78]" : "text-muted")}>{thread.unread > 0 ? `${thread.unread} unread message${thread.unread > 1 ? "s" : ""}` : "Tap to view conversation"}</p>
                     <div className="mt-1.5 flex items-center gap-2 text-[11px]">
-                      {thread.triage === "critical" ? <span className="text-danger">Needs attention</span> : thread.triage === "moderate" ? <span className="text-muted">Needs reply</span> : <span className="text-faint">Routine</span>}
+                      <span className={thread.triage === "critical" ? "text-danger" : thread.triage === "moderate" ? "text-muted" : "text-faint"}>{triageLabel(thread.triage)}</span>
                       {thread.escalated && <span className="inline-flex items-center gap-1 text-danger"><ShieldAlert size={10} /> Escalated</span>}
                       {thread.paid && <span className="text-faint">· Paid chat</span>}
                       {thread.scope === "booking" && <span className="text-faint">· Booking</span>}

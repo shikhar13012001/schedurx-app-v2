@@ -1,7 +1,15 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { Triage } from "./types";
 
 export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
+
+// Phase 5: display-only relabel — the DB enum (critical/moderate/routine)
+// and the classifier prompt that produces it stay exactly as-is, so this
+// is the one place "critical" becomes the "High" a receptionist actually
+// reads, without a migration to rename anything.
+const TRIAGE_LABELS: Record<Triage, string> = { critical: "High", moderate: "Medium", routine: "Low" };
+export function triageLabel(triage: Triage) { return TRIAGE_LABELS[triage]; }
 
 export function initials(name: string) {
   return name.replace(/^Dr\.?\s+/i, "").split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();

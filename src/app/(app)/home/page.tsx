@@ -25,7 +25,7 @@ import { useAppointments } from "@/hooks/use-appointments";
 import { useThreads } from "@/hooks/use-threads";
 import { usePatients } from "@/hooks/use-patients";
 import { useDoctors } from "@/hooks/use-team";
-import { cn, fmtTime, toDateKey } from "@/lib/utils";
+import { cn, fmtTime, toDateKey, triageLabel } from "@/lib/utils";
 
 function greeting() {
   const hour = new Date().getHours();
@@ -155,7 +155,7 @@ function DoctorHome({ doctorId }: { doctorId: string }) {
           <div className="flex items-start gap-4">
             <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-danger" />
             <div className="min-w-0 flex-1">
-              <p className="text-[12px] text-danger">Needs attention</p>
+              <p className="text-[12px] text-danger">{triageLabel(urgent.triage)} priority</p>
               <p className="mt-1 text-[18px] font-medium tracking-[-0.03em]">{patients?.find((p) => p.id === urgent.patientId)?.name}</p>
               <p className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-muted">{urgent.aiSummary}</p>
             </div>

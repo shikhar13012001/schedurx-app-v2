@@ -12,7 +12,7 @@ import { useThread } from "@/hooks/use-threads";
 import { usePatients } from "@/hooks/use-patients";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import { api, ApiError } from "@/lib/api-client";
-import { cn, fmtTime } from "@/lib/utils";
+import { cn, fmtTime, triageLabel } from "@/lib/utils";
 
 export default function ThreadPage() {
   const { id } = useParams<{ id: string }>();
@@ -91,7 +91,7 @@ export default function ThreadPage() {
             <div>
               <p className="text-[11.5px] text-muted">ScheduRx read</p>
               <p className="mt-1.5 text-[14px] leading-relaxed text-ink/[0.82]">{thread.aiSummary}</p>
-              {thread.triage === "critical" && <p className="mt-3 inline-flex items-center gap-1.5 text-[11.5px] text-danger"><span className="h-1.5 w-1.5 rounded-full bg-danger" />Needs attention</p>}
+              {thread.triage === "critical" && <p className="mt-3 inline-flex items-center gap-1.5 text-[11.5px] text-danger"><span className="h-1.5 w-1.5 rounded-full bg-danger" />{triageLabel(thread.triage)} priority</p>}
             </div>
           </div>
         </section>
