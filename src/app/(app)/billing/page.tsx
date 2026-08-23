@@ -1,19 +1,75 @@
 "use client";
 
 import { useState } from "react";
-import { Banknote, CreditCard, Lock, ReceiptText, Share2, Smartphone } from "lucide-react";
+import { Banknote, CreditCard, ExternalLink, Lock, ReceiptText, Share2, Smartphone } from "lucide-react";
 import { toast } from "sonner";
-import { useInvoices } from "@/hooks/use-billing";
+import { useInvoices, useSubscription } from "@/hooks/use-billing";
 import { usePatients } from "@/hooks/use-patients";
 import { useFindOrCreateThread } from "@/hooks/use-threads";
 import { useClinic, useSession } from "@/stores";
 import { Avatar } from "@/components/ui/avatar";
 import { Empty } from "@/components/ui/empty";
-import { ApiError } from "@/lib/api-client";
+import { api, ApiError } from "@/lib/api-client";
 import { inr, fmtDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
 const MODE_ICON = { upi: Smartphone, cash: Banknote, card: CreditCard } as const;
+
+const STATUS_LABEL: Record<string, string> = {
+  active: "Active",
+  trialing: "Trial",
+  past_due: "Payment overdue",
+  canceled: "Cancelled",
+  unpaid: "Unpaid",
+  incomplete: "Incomplete",
+  incomplete_expired: "Expired",
+  paused: "Paused",
+};
+
+// ScheduRx's own subscription (what this clinic pays ScheduRx) — separate
+// from the invoices below (what the clinic's patients pay it). Renders
+// nothing for anyone but the clinic owner (see useSubscription's comment for
+// why that's enforced by the 403 here, not a client-side role check) or a
+// clinic that's never subscribed at all.
+function SubscriptionCard() {
+  const { data: subscription } = useSubscription();
+  const [openingPortal, setOpeningPortal] = useState(false);
+
+  if (!subscription?.plan) return null;
+
+  const manageBilling = async () => {
+    setOpeningPortal(true);
+    try {
+      const { url } = await api.post<{ url: string }>("/api/v1/billing/subscription/portal-session", {
+        returnUrl: window.location.href,
+      });
+      window.location.href = url;
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't open the billing portal.");
+      setOpeningPortal(false);
+    }
+  };
+
+  return (
+    <section className="flex min-h-[78px] items-center gap-3 rounded-panel bg-surface-soft px-5 py-4">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-muted shadow-card"><ReceiptText size={16} /></span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] font-medium">
+          ScheduRx {subscription.plan.planId === "custom" ? "Build Your Own" : subscription.plan.planId === "premium" ? "Clinic Autopilot" : "Clinic Core"} plan
+        </p>
+        <p className="mt-0.5 text-[11.5px] text-muted">
+          {subscription.subscriptionStatus ? (STATUS_LABEL[subscription.subscriptionStatus] ?? subscription.subscriptionStatus) : "No active subscription"}
+          {subscription.subscriptionCurrentPeriodEnd ? ` · renews ${fmtDate(subscription.subscriptionCurrentPeriodEnd)}` : ""}
+        </p>
+      </div>
+      {subscription.hasStripeCustomer && (
+        <button onClick={manageBilling} disabled={openingPortal} className="pressable inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[12.5px] font-medium shadow-card disabled:opacity-50">
+          {openingPortal ? "Opening…" : "Manage billing"} <ExternalLink size={12} />
+        </button>
+      )}
+    </section>
+  );
+}
 
 export default function BillingPage() {
   const { settings, reply } = useClinic();
@@ -25,7 +81,8 @@ export default function BillingPage() {
 
   if (!settings.billing) {
     return (
-      <div className="mx-auto max-w-2xl pt-8">
+      <div className="mx-auto max-w-2xl space-y-5 pt-8">
+        <SubscriptionCard />
         <Empty icon={Lock} title="Billing is switched off" body={role === "doctor" ? "Turn it on from Profile → Practice to track payments and invoices." : "The doctor hasn’t enabled billing for this clinic yet."} />
       </div>
     );
@@ -57,6 +114,8 @@ export default function BillingPage() {
         <p className="text-[12px] text-muted">Practice money</p>
         <h1 className="mt-1 font-display text-[clamp(3rem,12vw,4.4rem)] font-light leading-[0.94] tracking-[-0.055em]">Billing</h1>
       </header>
+
+      <SubscriptionCard />
 
       <section className="atmosphere atmosphere-orange-right relative overflow-hidden rounded-hero bg-stone px-5 py-7 text-charcoal shadow-float dark:text-white sm:px-7">
         <div className="relative z-10">

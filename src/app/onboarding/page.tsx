@@ -23,8 +23,8 @@ import { api, ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import type { ClinicType, Role } from "@/lib/types";
 
-type Screen = "practice" | "you" | "clinic" | "plan" | "calls" | "team";
-const NEW_SCREENS: Screen[] = ["practice", "you", "clinic", "plan", "calls", "team"];
+type Screen = "practice" | "you" | "clinic" | "plan" | "payment" | "calls" | "team";
+const NEW_SCREENS: Screen[] = ["practice", "you", "clinic", "plan", "payment", "calls", "team"];
 const INVITED_SCREENS: Screen[] = ["you"];
 
 type OnboardingState = {
@@ -51,6 +51,10 @@ type OnboardingState = {
 
 function firstName(name: string) {
   return name.replace(/^Dr\.?\s+/i, "").split(" ")[0] ?? name;
+}
+
+function inrPaise(paise: number) {
+  return `₹${Math.round(paise / 100).toLocaleString("en-IN")}`;
 }
 
 export default function OnboardingPage() {
@@ -120,6 +124,9 @@ export default function OnboardingPage() {
   const [catalog, setCatalog] = useState<OnboardingState["catalog"] | null>(null);
   const [planId, setPlanId] = useState<PlanId | null>(null);
   const [addonIds, setAddonIds] = useState<string[]>([]);
+
+  // Screen: payment
+  const [checkingOut, setCheckingOut] = useState(false);
 
   // Screen: calls
   const [carrier, setCarrier] = useState<Carrier | null>(null);
@@ -402,6 +409,48 @@ export default function OnboardingPage() {
     setSaving(true);
     try {
       await api.patch("/api/v1/onboarding/plan", { planId, addonIds: planId === "custom" ? addonIds : [] });
+      await api.patch("/api/v1/onboarding/clinic-step", { step: "payment" });
+      setScreenIdx((i) => i + 1);
+      setDir(1);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't save that — try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Screen: payment ───────────────────────────────────────────────────────
+  // Redirects out to a Stripe subscription Checkout Session for the plan
+  // just chosen. Stripe sends the browser back to this same page with
+  // ?billing=success|cancelled — the effect below picks that up. Actual
+  // subscription confirmation comes from stripe-webhook.js
+  // (customer.subscription.created), not this redirect, so the "success"
+  // return here just advances the wizard rather than gating on it.
+  const submitPayment = async () => {
+    if (!planId) return;
+    setCheckingOut(true);
+    try {
+      const origin = window.location.origin;
+      const { checkoutUrl } = await api.post<{ checkoutUrl: string }>("/api/v1/billing/subscription/checkout-session", {
+        planId,
+        addonIds: planId === "custom" ? addonIds : [],
+        successUrl: `${origin}/onboarding?billing=success`,
+        cancelUrl: `${origin}/onboarding?billing=cancelled`,
+      });
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      if (err instanceof ApiError && (err.code === "STRIPE_NOT_CONFIGURED" || err.code === "STRIPE_PRICE_NOT_CONFIGURED")) {
+        toast.error("Billing isn't set up for this plan yet — you can continue and subscribe later from Settings.");
+      } else {
+        toast.error(err instanceof ApiError ? err.message : "Couldn't start checkout — try again.");
+      }
+      setCheckingOut(false);
+    }
+  };
+
+  const skipPayment = async () => {
+    setSaving(true);
+    try {
       await api.patch("/api/v1/onboarding/clinic-step", { step: "calls" });
       setScreenIdx((i) => i + 1);
       setDir(1);
@@ -411,6 +460,24 @@ export default function OnboardingPage() {
       setSaving(false);
     }
   };
+
+  // Picks up the ?billing=success|cancelled Stripe returned with. Runs once
+  // the wizard has resumed onto the payment screen so it doesn't fire before
+  // resolveExisting() has set screenIdx.
+  useEffect(() => {
+    if (phase !== "wizard" || screen !== "payment") return;
+    const params = new URLSearchParams(window.location.search);
+    const billing = params.get("billing");
+    if (!billing) return;
+    router.replace("/onboarding"); // strip the query param so a refresh doesn't re-trigger this
+    if (billing === "success") {
+      toast.success("Subscribed — welcome aboard.");
+      void skipPayment(); // reuses the same "advance to calls" step-patch; nothing left to pay for here
+    } else if (billing === "cancelled") {
+      toast("Checkout cancelled — you can try again anytime.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, screen]);
 
   // ── Screen: calls ─────────────────────────────────────────────────────────
   // Reuses the reception number already collected on the "clinic" screen —
@@ -474,6 +541,7 @@ export default function OnboardingPage() {
     if (screen === "you") return void submitProfile();
     if (screen === "clinic") return void submitClinic();
     if (screen === "plan") return void submitPlan();
+    if (screen === "payment") return void submitPayment();
     if (screen === "calls") return void submitCalls(false);
     if (screen === "team") return void finish();
   };
@@ -754,6 +822,25 @@ export default function OnboardingPage() {
               </section>
             )}
 
+            {screen === "payment" && catalog && planId && (
+              <section>
+                <h1 className="text-balance font-display text-[clamp(2.4rem,9vw,3.4rem)] font-light leading-[0.98] tracking-[-0.05em]">Set up<br />billing.</h1>
+                <p className="mt-4 max-w-[390px] text-[14px] leading-relaxed text-muted">
+                  You&rsquo;re subscribing to <span className="text-fg">{catalog.plans[planId].name}</span>
+                  {planId === "custom" && addonIds.length > 0 ? ` + ${addonIds.length} add-on${addonIds.length > 1 ? "s" : ""}` : ""}
+                  {" — "}
+                  {inrPaise(
+                    planId === "custom"
+                      ? (catalog.plans.custom.basePaise ?? 0) + addonIds.reduce((sum, id) => sum + (catalog.addons[id]?.monthlyPaise ?? 0), 0)
+                      : (catalog.plans[planId].monthlyPaise ?? 0),
+                  )}
+                  /month.
+                </p>
+                <p className="mt-2 max-w-[390px] text-[13px] leading-relaxed text-muted">You&rsquo;ll be taken to Stripe&rsquo;s secure checkout to add a card.</p>
+                <button onClick={() => void skipPayment()} className="pressable mt-6 text-center text-[13px] text-muted underline-offset-4 hover:underline">I&rsquo;ll do this later</button>
+              </section>
+            )}
+
             {screen === "calls" && catalog && (
               <section>
                 <h1 className="text-balance font-display text-[clamp(2.4rem,9vw,3.4rem)] font-light leading-[0.98] tracking-[-0.05em]">Never miss<br />a patient call.</h1>
@@ -782,8 +869,9 @@ export default function OnboardingPage() {
         {screenIdx > 0 && flowType === "new" && (
           <button onClick={goBack} className="pressable flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-surface shadow-card" aria-label="Back"><ArrowLeft size={18} /></button>
         )}
-        <Button size="lg" className="flex-1" disabled={!canContinue || saving} onClick={onContinue}>
-          {saving ? "Saving…" : screen === "team" ? "Go to ScheduRx" : "Continue"} {screen !== "team" && <ArrowRight size={16} />}
+        <Button size="lg" className="flex-1" disabled={!canContinue || saving || checkingOut} onClick={onContinue}>
+          {checkingOut ? "Redirecting to Stripe…" : saving ? "Saving…" : screen === "team" ? "Go to ScheduRx" : screen === "payment" ? "Pay & subscribe" : "Continue"}
+          {screen !== "team" && <ArrowRight size={16} />}
           {screen === "team" && <Check size={16} />}
         </Button>
       </div>
