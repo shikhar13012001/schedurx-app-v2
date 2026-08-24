@@ -111,12 +111,21 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
           // happened, not an assumed success.
           if (result?.tokenLinkSent) {
             toast.success(`Payment link sent to ${v.name}`, { description: "Slot is held — it books automatically once they pay." });
-          } else {
+          } else if (result?.checkoutUrl) {
+            // WhatsApp blocks a free-form business-initiated message outside
+            // an open 24h session window — true for almost every brand-new
+            // booking, so this isn't rare. Put the real link directly in
+            // staff's hands (clipboard) instead of telling them to "copy it"
+            // with nothing on screen to copy.
+            const checkoutUrl = result.checkoutUrl;
+            navigator.clipboard?.writeText(checkoutUrl).catch(() => {});
             toast(`Slot held for ${v.name}`, {
-              description: result?.checkoutUrl
-                ? "Couldn't send the WhatsApp link automatically — copy and share it yourself."
-                : "Couldn't confirm the payment link was sent — check with the patient.",
+              description: "Couldn't auto-send the WhatsApp link — payment link copied, share it yourself.",
+              action: { label: "Copy again", onClick: () => navigator.clipboard?.writeText(checkoutUrl).catch(() => {}) },
+              duration: 15000,
             });
+          } else {
+            toast(`Slot held for ${v.name}`, { description: "Couldn't confirm the payment link was sent — check with the patient." });
           }
         } else {
           toast.success(`Appointment booked · ${v.name}`, { description: "Confirmation sent on WhatsApp." });
