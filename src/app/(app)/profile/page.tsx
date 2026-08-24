@@ -43,12 +43,26 @@ export default function ProfilePage() {
   const [slotMinutes, setSlotMinutes] = React.useState<string>("");
   const [googleReviewUrl, setGoogleReviewUrl] = React.useState<string>("");
   const [savingReviewUrl, setSavingReviewUrl] = React.useState(false);
+  const [tokenAmount, setTokenAmount] = React.useState<string>("");
+  const [tokenEnabled, setTokenEnabled] = React.useState(false);
+  const [savingToken, setSavingToken] = React.useState(false);
 
   React.useEffect(() => {
     if (clinicProfile) setGoogleReviewUrl(clinicProfile.googleReviewUrl ?? "");
   }, [clinicProfile?.googleReviewUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  React.useEffect(() => {
+    if (clinicProfile) {
+      setTokenAmount(clinicProfile.tokenAmountPaise != null ? String(Math.round(clinicProfile.tokenAmountPaise / 100)) : "");
+      setTokenEnabled(clinicProfile.tokenMoneyEnabled);
+    }
+  }, [clinicProfile?.tokenAmountPaise, clinicProfile?.tokenMoneyEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const reviewUrlDirty = (clinicProfile?.googleReviewUrl ?? "") !== googleReviewUrl;
+  const tokenAmountPaiseValue = tokenAmount ? Math.round(Number(tokenAmount) * 100) : null;
+  const tokenDirty =
+    !!clinicProfile &&
+    (tokenEnabled !== clinicProfile.tokenMoneyEnabled || tokenAmountPaiseValue !== (clinicProfile.tokenAmountPaise ?? null));
 
   async function saveGoogleReviewUrl() {
     if (!reviewUrlDirty) return;
@@ -61,6 +75,30 @@ export default function ProfilePage() {
       toast.error(err instanceof ApiError ? err.message : "Couldn't save the review link");
     } finally {
       setSavingReviewUrl(false);
+    }
+  }
+
+  // This clinic-level amount is what the booking sheet's "Lock slot with
+  // token" toggle actually charges — a completely separate field from a
+  // doctor's own consultation Fee below, which a booking never reads for
+  // this purpose. Saving with the toggle on but no amount set is refused
+  // client-side so a clinic can't end up in the same "token requested, no
+  // amount configured" state that broke booking earlier.
+  async function saveToken() {
+    if (!tokenDirty) return;
+    if (tokenEnabled && !tokenAmountPaiseValue) {
+      toast.error("Enter a token amount before turning this on.");
+      return;
+    }
+    setSavingToken(true);
+    try {
+      await api.patch("/api/v1/clinic", { tokenMoneyEnabled: tokenEnabled, tokenAmountPaise: tokenEnabled ? tokenAmountPaiseValue : null });
+      await queryClient.invalidateQueries({ queryKey: ["clinic-profile"] });
+      toast.success("Token settings saved");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't save token settings");
+    } finally {
+      setSavingToken(false);
     }
   }
 
@@ -189,6 +227,27 @@ export default function ProfilePage() {
         <SettingGroup title="Practice">
           <ToggleRow title="Digital prescriptions" hint="Generate letterhead PDFs; otherwise attach a photo." checked={settings.digitalRx} onChange={(value) => trySetting("digitalRx", value)} />
           <ToggleRow title="Billing & invoices" hint="Track payments, tokens and invoices." checked={settings.billing} onChange={(value) => trySetting("billing", value)} icon={<Wallet size={14} />} />
+          {settings.billing && (
+            <div className="border-t border-border/60 pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[14px] font-medium">Lock slot with token</p>
+                  <p className="mt-1 max-w-[360px] text-[11.5px] leading-relaxed text-muted">
+                    A booking-sheet toggle staff use per patient — this is the amount it actually charges, separate from a doctor&apos;s consultation Fee below.
+                  </p>
+                </div>
+                <Switch checked={tokenEnabled} onCheckedChange={setTokenEnabled} />
+              </div>
+              {tokenEnabled && (
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <Field label="Token amount (₹)"><Input value={tokenAmount} onChange={(e) => setTokenAmount(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></Field>
+                </div>
+              )}
+              <Button size="sm" className="mt-4 w-full sm:w-auto" disabled={!tokenDirty || savingToken} onClick={saveToken}>
+                {savingToken ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          )}
           <ToggleRow title="Reception analytics" hint="Allow front desk access to practice metrics." checked={settings.receptionAnalytics} onChange={(value) => trySetting("receptionAnalytics", value)} />
           <div className="border-t border-border/60 pt-5">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

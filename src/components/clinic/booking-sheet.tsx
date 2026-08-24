@@ -14,6 +14,7 @@ import { useClinic, useSession } from "@/stores";
 import { useDoctors } from "@/hooks/use-team";
 import { usePatients } from "@/hooks/use-patients";
 import { useAvailableSlots } from "@/hooks/use-available-slots";
+import { useClinicProfile } from "@/hooks/use-clinic-profile";
 import { ApiError } from "@/lib/api-client";
 import { cn, dateAt, toDateKey } from "@/lib/utils";
 import type { Doctor, VisitMode } from "@/lib/types";
@@ -44,8 +45,11 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
   const { addAppointment, addWalkIn } = useClinic();
   const { data: doctors } = useDoctors();
   const { data: patients } = usePatients();
+  const { data: clinicProfile } = useClinicProfile();
   const DOCTORS = doctors ?? [];
   const PATIENTS = patients ?? [];
+  const tokenConfigured = !!clinicProfile?.tokenMoneyEnabled && !!clinicProfile?.tokenAmountPaise;
+  const tokenAmountRupees = clinicProfile?.tokenAmountPaise ? Math.round(clinicProfile.tokenAmountPaise / 100) : null;
 
   const defaultDay = prefillDay ?? toDateKey(new Date());
   const defaultDoctorId = prefillDoctorId ?? session?.doctorId ?? DOCTORS[0]?.id ?? "";
@@ -54,11 +58,11 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
     resolver: zodResolver(schema),
     defaultValues: {
       phone: prefillPhone ?? "", name: "", doctorId: defaultDoctorId,
-      mode: "clinic", day: defaultDay, time: prefillTime ?? "", symptoms: "", token: !walkIn,
+      mode: "clinic", day: defaultDay, time: prefillTime ?? "", symptoms: "", token: false,
     },
   });
 
-  useEffect(() => { if (open) reset({ phone: prefillPhone ?? "", name: "", doctorId: defaultDoctorId, mode: "clinic", day: defaultDay, time: prefillTime ?? "", symptoms: "", token: !walkIn }); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) reset({ phone: prefillPhone ?? "", name: "", doctorId: defaultDoctorId, mode: "clinic", day: defaultDay, time: prefillTime ?? "", symptoms: "", token: false }); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const phone = watch("phone");
   const known = useMemo(() => PATIENTS.find((p) => phone && phone.length >= 10 && p.phone.replace(/\s/g, "").endsWith(phone.replace(/\D/g, "").slice(-10))), [phone, patients]); // eslint-disable-line react-hooks/exhaustive-deps -- PATIENTS is `patients ?? []`, a fresh reference every render; depend on the stable `patients` query result instead
@@ -181,12 +185,16 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
         </Field>
 
         {!walkIn && (
-          <label className="flex items-center justify-between rounded-panel bg-surface-soft px-4 py-4">
+          <label className={cn("flex items-center justify-between rounded-panel bg-surface-soft px-4 py-4", !tokenConfigured && "opacity-60")}>
             <span>
               <span className="flex items-center gap-1.5 text-[14px] font-medium"><IndianRupee size={14} className="text-primary" /> Lock slot with token</span>
-              <span className="block text-[12px] text-muted">₹100 payment link on WhatsApp — kills no-shows</span>
+              <span className="block text-[12px] text-muted">
+                {tokenConfigured
+                  ? `₹${tokenAmountRupees} payment link on WhatsApp — kills no-shows`
+                  : "Set a token amount in Profile → Billing & invoices first"}
+              </span>
             </span>
-            <Controller name="token" control={control} render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} />} />
+            <Controller name="token" control={control} render={({ field }) => <Switch checked={field.value} disabled={!tokenConfigured} onCheckedChange={field.onChange} />} />
           </label>
         )}
 

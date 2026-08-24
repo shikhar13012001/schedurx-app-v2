@@ -11,6 +11,8 @@ export interface ClinicProfile {
   closingHour: number | null;
   workingDays: string[] | null;
   googleReviewUrl: string | null;
+  tokenMoneyEnabled: boolean;
+  tokenAmountPaise: number | null;
 }
 
 export function useClinicProfile() {
