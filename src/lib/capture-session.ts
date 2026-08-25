@@ -6,6 +6,19 @@
 
 export type CaptureState = "idle" | "capturing" | "paused";
 
+// Carried on the "srx-start-capture" window event NowServing dispatches
+// when the doctor taps the mic — the AmbientCaptureController (rendered
+// separately, dynamically imported for bundle-size reasons) listens for
+// this rather than receiving the target via props, since it isn't a
+// sibling of NowServing in the render tree.
+export interface CaptureTarget {
+  patientId?: string;
+  doctorId: string;
+  appointmentId?: string;
+  symptoms?: string;
+  displayName?: string;
+}
+
 // What a single tap on the AIControl button should do next, given the
 // current state — idle -> capturing -> paused -> capturing -> ... End is a
 // separate, explicit action (the red Square button), never reached by

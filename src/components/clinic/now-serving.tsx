@@ -1,44 +1,19 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { useScribe, CommitStrategy } from "@elevenlabs/react";
-import { ArrowLeft, ArrowRight, Calendar, CalendarClock, Camera, ChevronLeft, ChevronRight, FileText, Lightbulb, Sparkles, Square, UserRoundPlus, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Calendar, CalendarClock, Camera, ChevronLeft, ChevronRight, FileText, Mic, Sparkles, UserRoundPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { AIControl } from "@/components/ui/ai-control";
 import { useClinic, useSession } from "@/stores";
-import { useQueue, activeQueue } from "@/hooks/use-queue";
 import { useAppointments } from "@/hooks/use-appointments";
+import { useCurrentPatient } from "@/hooks/use-current-patient";
 import { usePatients } from "@/hooks/use-patients";
 import { api, ApiError } from "@/lib/api-client";
-import { appendTranscriptSegment, canEndCapture, isMeaningfulTranscript, shouldFetchSuggestion, tapCaptureAction, type CaptureState } from "@/lib/capture-session";
+import type { CaptureTarget } from "@/lib/capture-session";
 import { queryClient } from "@/lib/query-client";
 import { cn, fmtDate, fmtTime, toDateKey } from "@/lib/utils";
-
-// How many committed transcript segments accumulate before asking for a new
-// live suggestion — not on every segment (that's chatty and mostly
-// redundant turn-by-turn), not only at the end (too late to be useful).
-const SUGGEST_EVERY_N_SEGMENTS = 3;
-
-// Below this, the transcript is almost certainly a false start (mic toggled
-// on/off quickly, or a stray word or two) — submitting it produces the GPT
-// note-generation prompt's honest-but-useless "the doctor provided no
-// information to summarize" reply, which is worse than no note at all.
-const MIN_TRANSCRIPT_CHARS = 12;
-
-// Biases Scribe's recognition toward terms it otherwise tends to mishear or
-// drop — mostly medication names, which matter far more to get right in a
-// clinical transcript than in general speech. ElevenLabs caps this at 100
-// terms; keep additions targeted rather than exhaustive.
-const CLINICAL_KEYTERMS = [
-  "Paracetamol", "Ibuprofen", "Azithromycin", "Amoxicillin", "Ciprofloxacin",
-  "Pantoprazole", "Omeprazole", "Metformin", "Amlodipine", "Losartan",
-  "Atorvastatin", "Cetirizine", "Domperidone", "Ondansetron", "Ranitidine",
-  "Levocetirizine", "Montelukast", "Salbutamol", "Dolo", "Crocin", "Combiflam",
-  "ORS", "Digene",
-];
 
 // Walk-ins with no patient record have nowhere to link — renders as a plain,
 // non-interactive wrapper for them instead of a dead/empty href.
@@ -47,82 +22,31 @@ function PatientLink({ patientId, className, children }: { patientId?: string; c
   return <Link href={`/patients/${patientId}`} className={className}>{children}</Link>;
 }
 
+// Ambient capture itself (mic -> live transcript -> recommendations -> save)
+// lives in AmbientCaptureController/AmbientListenerPanel at the Home page
+// level now, not here — this card's mic button is only the entry point. It
+// signals via a window event rather than a prop callback because the
+// listener panel is dynamically imported and isn't a sibling of this
+// component in the render tree; dispatching the target patient as the
+// event's detail means the listening UI survives regardless of which
+// patient this card ends up showing next, or whether the doctor taps
+// Next/Prev while a session is open.
+function startCapture(target: CaptureTarget) {
+  window.dispatchEvent(new CustomEvent<CaptureTarget>("srx-start-capture", { detail: target }));
+}
+
 export function NowServing({ doctorId, compact = false }: { doctorId: string; compact?: boolean }) {
   const { next, prev, addTask } = useClinic();
-  const { data: queue = [] } = useQueue();
   const { data: appointments = [] } = useAppointments({ date: toDateKey(new Date()) });
-  const { data: patients } = usePatients();
   const role = useSession((s) => s.session?.role);
   const clinicId = useSession((s) => s.session?.clinicId);
-  // Local to this component — nothing else in the app reads ambient-capture
-  // state, so this no longer lives in the global store (it used to, as a
-  // plain boolean; a three-state session needs more than that anyway).
-  const [captureState, setCaptureState] = useState<CaptureState>("idle");
-  const [captureSettling, setCaptureSettling] = useState(false);
-  // Tells the page shell to ignore swipe-tab-navigation while a session is
-  // open — captureState/transcriptRef are local to this component, so an
-  // accidental swipe away from Home would otherwise silently drop them.
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent("srx-capture-active", { detail: captureState !== "idle" }));
-    return () => { window.dispatchEvent(new CustomEvent("srx-capture-active", { detail: false })); };
-  }, [captureState]);
   const [fu, setFu] = useState<string | null>(null);
   const [customFollowUpOpen, setCustomFollowUpOpen] = useState(false);
   const [encounterOpen, setEncounterOpen] = useState(false);
-  const [suggestion, setSuggestion] = useState<string | null>(null);
   const rxFileRef = useRef<HTMLInputElement>(null);
-  // Accumulated across the whole ambient-capture session, including across
-  // a pause/resume — read at End time to build the final note, so a plain
-  // ref (not state) is enough; nothing here needs to re-render on every
-  // committed segment.
-  const transcriptRef = useRef("");
-  const segmentsSinceSuggestRef = useRef(0);
 
-  const fetchSuggestion = async () => {
-    const transcript = transcriptRef.current.trim();
-    if (!transcript) return;
-    try {
-      const { suggestion: fresh } = await api.post<{ suggestion: string | null }>("/api/v1/visits/suggest", { transcript });
-      if (fresh) setSuggestion(fresh);
-    } catch {
-      // Best-effort — a failed suggestion call is silent, never interrupts the consult.
-    }
-  };
-
-  const scribe = useScribe({
-    modelId: "scribe_v2_realtime",
-    // VAD (not the default manual commit) is required for live mic input —
-    // without it, committed transcripts never fire (see the ElevenLabs
-    // speech-to-text skill's own warning on this).
-    commitStrategy: CommitStrategy.VAD,
-    // Auto-detects the spoken language per session (Hindi, English, and
-    // Scribe's other 90+ supported languages all work here) — no fixed
-    // languageCode hint, so a clinic isn't locked to one language. A
-    // secondary-languages hint for mid-sentence code-switching (common in
-    // Indian clinics) is part of ElevenLabs' realtime protocol but isn't
-    // yet exposed by the installed @elevenlabs/react@1.14.0's useScribe
-    // typings — worth adding once it lands in a client release.
-    includeLanguageDetection: true,
-    // Strips filler words/false starts/disfluencies — the transcript feeds
-    // straight into a clinical note, not a verbatim court transcript.
-    noVerbatim: true,
-    keyterms: CLINICAL_KEYTERMS,
-    onCommittedTranscript: (data: { text?: string }) => {
-      if (!data.text?.trim()) return;
-      transcriptRef.current = appendTranscriptSegment(transcriptRef.current, data.text);
-      segmentsSinceSuggestRef.current += 1;
-      if (shouldFetchSuggestion(segmentsSinceSuggestRef.current, SUGGEST_EVERY_N_SEGMENTS)) {
-        segmentsSinceSuggestRef.current = 0;
-        void fetchSuggestion();
-      }
-    },
-  });
-
-  const active = useMemo(() => activeQueue(queue).filter((q) => q.doctorId === doctorId), [queue, doctorId]);
-  const current = active.find((q) => q.state === "in_room") ?? active[0];
-  const patient = current ? patients?.find((p) => p.id === current.patientId) : undefined;
-  const displayName = patient?.name ?? current?.displayName;
-  const appt = current?.apptId ? appointments.find((a) => a.id === current.apptId) : undefined;
+  const { data: patients } = usePatients();
+  const { active, current, patient, appt, displayName } = useCurrentPatient(doctorId);
   const upNext = active.filter((q) => q.id !== current?.id)[0];
   const upNextName = upNext ? (patients?.find((p) => p.id === upNext.patientId)?.name ?? upNext.displayName) : undefined;
 
@@ -132,7 +56,6 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     const nextAppt = appointments
       .filter((a) => a.doctorId === doctorId && ["confirmed", "tentative"].includes(a.status) && +new Date(a.startsAt) > Date.now())
       .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))[0];
-    const nextPatientName = nextAppt ? patients?.find((p) => p.id === nextAppt.patientId)?.name : undefined;
 
     return (
       <div className="rounded-panel bg-surface-2/70 px-6 py-9">
@@ -143,7 +66,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
         {nextAppt && (
           <p className="mt-4 inline-flex items-center gap-2 rounded-pill bg-surface px-4 py-2.5 text-[12.5px] text-ink shadow-card">
             <CalendarClock size={13} className="text-primary" />
-            Next · {nextPatientName ?? "Patient"} at {fmtTime(nextAppt.startsAt)}
+            Next · {fmtTime(nextAppt.startsAt)}
           </p>
         )}
       </div>
@@ -152,12 +75,11 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
 
   const lastVisit = patient?.visits[0];
   const isNew = !patient?.visits.length;
+  const captureTarget: CaptureTarget = { patientId: patient?.id, doctorId, appointmentId: appt?.id, symptoms: appt?.symptoms, displayName };
 
   // The backend resolves the same (clinicId, patientId, today) Visit row
   // every time — safe to call as often as needed without ever creating a
-  // duplicate, so this doesn't try to guess client-side whether one
-  // already exists (patient.visits here is a list-view row and never
-  // carries the full visits array, so that guess would always be wrong).
+  // duplicate.
   const ensureVisitId = async (patientId: string): Promise<string> => {
     const { visit } = await api.post<{ visit: { id: string } }>("/api/v1/visits", {
       patientId, doctorId, appointmentId: appt?.id, symptoms: appt?.symptoms, visitDate: toDateKey(new Date()),
@@ -166,35 +88,14 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   };
 
   // Every view that shows this patient's data reads from a different query
-  // key — the patients list (visitsCount/lastVisitDate), this patient's own
-  // detail page, and their visit history. Without invalidating all three,
-  // whichever of those isn't the one currently on screen stays stale until
-  // a manual reload, even though the recap/attachment/recording really did
-  // save.
+  // key — without invalidating all three, whichever isn't the one currently
+  // on screen stays stale until a manual reload.
   const invalidatePatientData = async (patientId: string) => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["visits", clinicId, patientId] }),
       queryClient.invalidateQueries({ queryKey: ["patient", clinicId, patientId] }),
       queryClient.invalidateQueries({ queryKey: ["patients", clinicId] }),
     ]);
-  };
-
-  // Ambient capture is the only recording path now — the transcript is
-  // already in hand, so this always sends {text}; the /recap route itself
-  // still also accepts {audioBase64} for any other caller.
-  const submitRecap = async (text: string) => {
-    if (!patient) {
-      toast.error("No patient file to save this to — this looks like a walk-in with no record yet.");
-      return;
-    }
-    try {
-      const visitId = await ensureVisitId(patient.id);
-      const { visit: updated } = await api.post<{ visit: { notes: string | null } }>(`/api/v1/visits/${visitId}/recap`, { text });
-      await invalidatePatientData(patient.id);
-      toast.success(`Recap saved to ${displayName?.split(" ")[0] ?? "patient"}'s file`, { description: updated.notes ?? undefined });
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't save that recap.");
-    }
   };
 
   const setFollowUp = async (label: string, dueDate: Date) => {
@@ -241,89 +142,6 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't attach that file — try again.");
     }
-  };
-
-  // Ambient capture streams to ElevenLabs Scribe in real time (unlike the
-  // "Recap" button above, which records one clip and transcribes it after
-  // the fact) — this is what lets live suggestions surface mid-consult
-  // instead of only once it's over. Three states, not a toggle: capturing
-  // and paused are both "a session is open" — only End actually finalizes
-  // and submits the recap. Next/prev (below) always End first if a session
-  // is still open, so it can never keep listening into the wrong patient.
-  //
-  // A parallel recording (a second independent getUserMedia stream feeding
-  // a MediaRecorder, so the session could be played back later) was tried
-  // here and reverted — on several mobile browsers, a second concurrent
-  // microphone request destabilizes the one Scribe itself needs, breaking
-  // capture entirely ("couldn't listen, check your microphone permissions"
-  // on a device where it worked before). Losing playback is a much smaller
-  // problem than losing live transcription, so this only opens Scribe's
-  // own single stream now.
-  const startCapture = async () => {
-    try {
-      const { token } = await api.get<{ token: string }>("/api/v1/visits/scribe-token");
-      await scribe.connect({ token, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      setCaptureState("capturing");
-      toast.success("Listening", { description: "With patient consent. Pause or end anytime." });
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't start listening — check your microphone permissions.");
-    }
-  };
-
-  const pauseCapture = () => {
-    scribe.disconnect();
-    setCaptureState("paused");
-    toast.message("Paused", { description: "Nothing's being saved yet — resume or end whenever you're ready." });
-  };
-
-  const resumeCapture = async () => {
-    try {
-      const { token } = await api.get<{ token: string }>("/api/v1/visits/scribe-token");
-      await scribe.connect({ token, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      setCaptureState("capturing");
-      toast.success("Listening again");
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't resume — check your microphone permissions.");
-    }
-  };
-
-  // Single tap-to-cycle handler shared by both control surfaces (the
-  // compact hero row and the full encounter modal) — one source of truth
-  // for what a tap does at each state, instead of two copies that could
-  // drift apart.
-  const handleCaptureTap = () => {
-    const action = tapCaptureAction(captureState);
-    if (action === "start") void startCapture();
-    else if (action === "pause") pauseCapture();
-    else void resumeCapture();
-  };
-
-  const endCapture = async () => {
-    if (!canEndCapture(captureState)) return;
-    if (captureState === "capturing") scribe.disconnect();
-    setCaptureState("idle");
-    setCaptureSettling(true);
-    const finalTranscript = transcriptRef.current.trim();
-    transcriptRef.current = "";
-    segmentsSinceSuggestRef.current = 0;
-    setSuggestion(null);
-    if (isMeaningfulTranscript(finalTranscript, MIN_TRANSCRIPT_CHARS)) {
-      toast.message("Processing capture…");
-      await submitRecap(finalTranscript);
-      toast.success("Visit context ready", { description: "The clinical note is up to date." });
-    }
-    setCaptureSettling(false);
-  };
-
-  // A session left open (capturing or paused) must never silently follow
-  // the queue to a different patient — end it first, always.
-  const goNext = async () => {
-    await endCapture();
-    await next(doctorId);
-  };
-  const goPrev = async () => {
-    await endCapture();
-    await prev(doctorId);
   };
 
   return (
@@ -375,25 +193,13 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
 
             {!compact && (
               <div className="mt-5 flex items-center justify-between gap-3">
-                <button onClick={() => void goPrev()} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.12] text-white" aria-label="Previous patient"><ChevronLeft size={20} /></button>
+                <button onClick={() => void prev(doctorId)} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.12] text-white" aria-label="Previous patient"><ChevronLeft size={20} /></button>
                 {role === "doctor" ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleCaptureTap}
-                      className="pressable"
-                      disabled={captureSettling}
-                      aria-label={captureSettling ? "Processing ambient capture" : captureState === "capturing" ? "Pause ambient capture" : captureState === "paused" ? "Resume ambient capture" : "Start ambient capture"}
-                    >
-                      <AIControl size={62} state={captureSettling ? "thinking" : captureState === "capturing" ? "live" : "idle"} icon={false} />
-                    </button>
-                    {canEndCapture(captureState) && (
-                      <button onClick={() => void endCapture()} disabled={captureSettling} className="pressable flex h-10 w-10 items-center justify-center rounded-full bg-danger text-white disabled:opacity-60" aria-label="End session">
-                        <Square size={13} fill="currentColor" />
-                      </button>
-                    )}
-                  </div>
+                  <button onClick={() => startCapture(captureTarget)} className="pressable flex h-14 items-center gap-2.5 rounded-pill bg-white px-5 text-[13.5px] font-medium text-ink" aria-label="Start listening">
+                    <Mic size={17} /> Listen
+                  </button>
                 ) : <span className="text-[12px] text-white/[0.56]">{active.length} in queue</span>}
-                <button onClick={() => void goNext()} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-primary text-charcoal" aria-label="Next patient"><ChevronRight size={20} /></button>
+                <button onClick={() => void next(doctorId)} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-primary text-charcoal" aria-label="Next patient"><ChevronRight size={20} /></button>
               </div>
             )}
 
@@ -455,67 +261,33 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
                 <p className="mt-3 max-w-[560px] font-display text-[31px] font-light leading-[1.05] tracking-[-0.045em]">{appt?.symptoms ?? "Open consultation"}</p>
                 {lastVisit && <p className="mt-5 max-w-[580px] text-[14px] leading-relaxed text-black/[0.62]"><span className="font-medium text-black/80">Last visit · {fmtDate(lastVisit.date)}</span><br />{lastVisit.note}</p>}
 
-                {/* Doctor-facing only, grounded only in what's actually been
-                    said so far — a prompt for the doctor's own judgment,
-                    never a diagnosis. See openai-service.js's
-                    suggestDuringConsult for the full framing. */}
-                {suggestion && (
-                  <div className="mt-5 flex max-w-[580px] items-start gap-3 rounded-[24px] bg-primary/[0.14] px-4 py-3.5">
-                    <Lightbulb size={15} className="mt-0.5 shrink-0 text-primary-ink" />
-                    <p className="min-w-0 flex-1 text-[13.5px] leading-relaxed text-black/80">{suggestion}</p>
-                    <button onClick={() => setSuggestion(null)} className="shrink-0 text-black/40" aria-label="Dismiss suggestion"><X size={15} /></button>
-                  </div>
-                )}
-
                 <input ref={rxFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={attachPrescriptionPhoto} />
 
                 <div className="mt-10 grid gap-3 sm:grid-cols-2">
                   <button
-                    onClick={handleCaptureTap}
-                    disabled={captureSettling}
-                    aria-label={captureSettling ? "Processing ambient capture" : captureState === "capturing" ? "Pause ambient capture" : captureState === "paused" ? "Resume ambient capture" : "Start ambient capture"}
-                    className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card disabled:opacity-[0.72]"
+                    onClick={() => { setEncounterOpen(false); startCapture(captureTarget); }}
+                    className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card"
                   >
-                    <AIControl size={62} state={captureSettling ? "thinking" : captureState === "capturing" ? "live" : "idle"} icon={false} />
-                    <span>
-                      <span className="block text-[13px] text-black/[0.48]">Ambient capture</span>
-                      <span className="mt-1 block text-[18px] font-medium">
-                        {captureSettling ? "Processing" : captureState === "capturing" ? "Listening" : captureState === "paused" ? "Paused — tap to resume" : "Start capture"}
-                      </span>
-                    </span>
+                    <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-white"><Mic size={21} /></span>
+                    <span><span className="block text-[13px] text-black/[0.48]">Ambient capture</span><span className="mt-1 block text-[18px] font-medium">Start listening</span></span>
                   </button>
-                  {canEndCapture(captureState) ? (
-                    <button onClick={() => void endCapture()} disabled={captureSettling} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card disabled:opacity-[0.72]">
-                      <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-danger text-white"><Square size={20} fill="currentColor" /></span>
-                      <span><span className="block text-[13px] text-black/[0.48]">Session</span><span className="mt-1 block text-[18px] font-medium">End &amp; save note</span></span>
-                    </button>
-                  ) : (
-                    <button onClick={() => rxFileRef.current?.click()} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card">
-                      <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-white"><Camera size={21} /></span>
-                      <span><span className="block text-[13px] text-black/[0.48]">Prescription</span><span className="mt-1 block text-[18px] font-medium">Attach a photo</span></span>
-                    </button>
-                  )}
+                  <button onClick={() => rxFileRef.current?.click()} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card">
+                    <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-white"><Camera size={21} /></span>
+                    <span><span className="block text-[13px] text-black/[0.48]">Prescription</span><span className="mt-1 block text-[18px] font-medium">Attach a photo</span></span>
+                  </button>
                   {patient && (
                     <Link href={`/patients/${patient.id}`} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card">
                       <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-white"><FileText size={21} /></span>
                       <span><span className="block text-[13px] text-black/[0.48]">Patient record</span><span className="mt-1 block text-[18px] font-medium">Open history</span></span>
                     </Link>
                   )}
-                  {canEndCapture(captureState) && (
-                    <button onClick={() => rxFileRef.current?.click()} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card">
-                      <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-white"><Camera size={21} /></span>
-                      <span><span className="block text-[13px] text-black/[0.48]">Prescription</span><span className="mt-1 block text-[18px] font-medium">Attach a photo</span></span>
-                    </button>
-                  )}
                 </div>
               </div>
 
               <div className="relative mt-4 flex items-center justify-between rounded-[30px] bg-white/[0.08] px-3 py-3 backdrop-blur-xl">
-                <button onClick={() => void goPrev()} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-white/10" aria-label="Previous patient"><ChevronLeft size={20} /></button>
-                <span className="text-center text-[12px] text-white/[0.52]">
-                  {captureSettling ? "Turning speech into context" : captureState === "capturing" ? "Capturing this consult" : captureState === "paused" ? "Capture paused" : "Ready when you are"}
-                </span>
-                <button onClick={() => void goNext()} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-primary" aria-label="Next patient"><ChevronRight size={20} /></button>
+                <button onClick={() => void prev(doctorId)} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-white/10" aria-label="Previous patient"><ChevronLeft size={20} /></button>
+                <span className="text-center text-[12px] text-white/[0.52]">Ready when you are</span>
+                <button onClick={() => void next(doctorId)} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-primary" aria-label="Next patient"><ChevronRight size={20} /></button>
               </div>
             </div>
           </motion.div>

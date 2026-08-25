@@ -15,12 +15,15 @@ import {
   UserRoundPlus,
   Video,
 } from "lucide-react";
-// Dynamically imported (client-only) — now-serving.tsx pulls in the
-// ElevenLabs Scribe SDK for ambient capture, which added ~145kB to this
-// page's First Load JS when imported statically. Same "load only when
-// actually needed" discipline this codebase already uses for
-// prescription-pdf.tsx's @react-pdf/renderer.
 const NowServing = dynamic(() => import("@/components/clinic/now-serving").then((m) => m.NowServing), { ssr: false });
+// Dynamically imported (client-only) — pulls in the ElevenLabs Scribe SDK
+// for ambient capture, which added ~145kB to this page's First Load JS when
+// imported statically. Same "load only when actually needed" discipline
+// this codebase already uses for prescription-pdf.tsx's @react-pdf/renderer.
+const AmbientCaptureController = dynamic(
+  () => import("@/components/clinic/ambient-capture-controller").then((m) => m.AmbientCaptureController),
+  { ssr: false }
+);
 import { QueueList } from "@/components/clinic/queue";
 import { BookingSheet } from "@/components/clinic/booking-sheet";
 import { BlockTimeSheet } from "@/components/clinic/block-time";
@@ -284,6 +287,7 @@ function DoctorHome({ doctorId }: { doctorId: string }) {
 
       <BookingSheet open={booking} onOpenChange={setBooking} />
       <BlockTimeSheet open={blocking} onOpenChange={setBlocking} doctorId={doctorId} />
+      <AmbientCaptureController />
     </div>
   );
 }
