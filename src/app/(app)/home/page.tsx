@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -14,7 +15,12 @@ import {
   UserRoundPlus,
   Video,
 } from "lucide-react";
-import { NowServing } from "@/components/clinic/now-serving";
+// Dynamically imported (client-only) — now-serving.tsx pulls in the
+// ElevenLabs Scribe SDK for ambient capture, which added ~145kB to this
+// page's First Load JS when imported statically. Same "load only when
+// actually needed" discipline this codebase already uses for
+// prescription-pdf.tsx's @react-pdf/renderer.
+const NowServing = dynamic(() => import("@/components/clinic/now-serving").then((m) => m.NowServing), { ssr: false });
 import { QueueList } from "@/components/clinic/queue";
 import { BookingSheet } from "@/components/clinic/booking-sheet";
 import { BlockTimeSheet } from "@/components/clinic/block-time";

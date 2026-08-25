@@ -1,8 +1,9 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, CalendarClock, ChevronLeft, ChevronRight, FileText, Mic, Sparkles, UserRoundPlus } from "lucide-react";
+import { useScribe, CommitStrategy } from "@elevenlabs/react";
+import { ArrowLeft, ArrowRight, CalendarClock, ChevronLeft, ChevronRight, FileText, Lightbulb, Mic, Sparkles, UserRoundPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,11 @@ import { api, ApiError } from "@/lib/api-client";
 import { queryClient } from "@/lib/query-client";
 import { cn, fmtDate, fmtTime, toDateKey } from "@/lib/utils";
 
+// How many committed transcript segments accumulate before asking for a new
+// live suggestion — not on every segment (that's chatty and mostly
+// redundant turn-by-turn), not only at the end (too late to be useful).
+const SUGGEST_EVERY_N_SEGMENTS = 3;
+
 export function NowServing({ doctorId, compact = false }: { doctorId: string; compact?: boolean }) {
   const { capturing, setCapturing, next, prev, settings, addTask } = useClinic();
   const { data: queue = [] } = useQueue();
@@ -27,7 +33,52 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   const [captureSettling, setCaptureSettling] = useState(false);
   const [fu, setFu] = useState<string | null>(null);
   const [encounterOpen, setEncounterOpen] = useState(false);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   const recorder = useVoiceRecorder();
+  // Accumulated across the whole ambient-capture session — read at stop
+  // time to build the final note, so a plain ref (not state) is enough;
+  // nothing here needs to re-render on every committed segment.
+  const transcriptRef = useRef("");
+  const segmentsSinceSuggestRef = useRef(0);
+
+  const fetchSuggestion = async () => {
+    const transcript = transcriptRef.current.trim();
+    if (!transcript) return;
+    try {
+      const { suggestion: fresh } = await api.post<{ suggestion: string | null }>("/api/v1/visits/suggest", { transcript });
+      if (fresh) setSuggestion(fresh);
+    } catch {
+      // Best-effort — a failed suggestion call is silent, never interrupts the consult.
+    }
+  };
+
+  const scribe = useScribe({
+    modelId: "scribe_v2_realtime",
+    // VAD (not the default manual commit) is required for live mic input —
+    // without it, committed transcripts never fire (see the ElevenLabs
+    // speech-to-text skill's own warning on this).
+    commitStrategy: CommitStrategy.VAD,
+    // Auto-detects the spoken language per session (Hindi, English, and
+    // Scribe's other 90+ supported languages all work here) — no fixed
+    // languageCode hint, so a clinic isn't locked to one language. A
+    // secondary-languages hint for mid-sentence code-switching (common in
+    // Indian clinics) is part of ElevenLabs' realtime protocol but isn't
+    // yet exposed by the installed @elevenlabs/react@1.14.0's useScribe
+    // typings — worth adding once it lands in a client release.
+    includeLanguageDetection: true,
+    // Strips filler words/false starts/disfluencies — the transcript feeds
+    // straight into a clinical note, not a verbatim court transcript.
+    noVerbatim: true,
+    onCommittedTranscript: (data: { text?: string }) => {
+      if (!data.text) return;
+      transcriptRef.current = transcriptRef.current ? `${transcriptRef.current} ${data.text}` : data.text;
+      segmentsSinceSuggestRef.current += 1;
+      if (segmentsSinceSuggestRef.current >= SUGGEST_EVERY_N_SEGMENTS) {
+        segmentsSinceSuggestRef.current = 0;
+        void fetchSuggestion();
+      }
+    },
+  });
 
   const active = useMemo(() => activeQueue(queue).filter((q) => q.doctorId === doctorId), [queue, doctorId]);
   const current = active.find((q) => q.state === "in_room") ?? active[0];
@@ -64,12 +115,15 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   const lastVisit = patient?.visits[0];
   const isNew = !patient?.visits.length;
 
-  // Recap and ambient capture are the same underlying primitive — record,
-  // stop, turn the audio into a structured note via POST /:visitId/recap.
-  // Neither has a "current encounter" Visit row to attach to yet (that only
-  // gets created after checkout elsewhere in the app), so this creates one
-  // for today if the patient doesn't already have one, then recaps onto it.
-  const submitRecap = async (base64: string, filename: string) => {
+  // Recap and ambient capture both end up here — record, stop, turn the
+  // result into a structured note via POST /:visitId/recap. Recap sends
+  // {audioBase64} (transcribed server-side via Whisper); real-time ambient
+  // capture already has the transcript, so it sends {text} directly — the
+  // route accepts either. Neither has a "current encounter" Visit row to
+  // attach to yet (that only gets created after checkout elsewhere in the
+  // app), so this creates one for today if the patient doesn't already
+  // have one, then recaps onto it.
+  const submitRecap = async (payload: { audioBase64: string; filename: string } | { text: string }) => {
     if (!patient) {
       toast.error("No patient file to save this to — this looks like a walk-in with no record yet.");
       return;
@@ -83,7 +137,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
         });
         visitId = visit.id;
       }
-      const { visit: updated } = await api.post<{ visit: { notes: string | null } }>(`/api/v1/visits/${visitId}/recap`, { audioBase64: base64, filename });
+      const { visit: updated } = await api.post<{ visit: { notes: string | null } }>(`/api/v1/visits/${visitId}/recap`, payload);
       await queryClient.invalidateQueries({ queryKey: ["visits", clinicId, patient.id] });
       toast.success(`Recap saved to ${displayName?.split(" ")[0] ?? "patient"}'s file`, { description: updated.notes ?? undefined });
     } catch (err) {
@@ -95,7 +149,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     if (recorder.recording) {
       setRecapping(false);
       const clip = await recorder.stop();
-      if (clip) await submitRecap(clip.base64, clip.filename);
+      if (clip) await submitRecap({ audioBase64: clip.base64, filename: clip.filename });
       return;
     }
     try {
@@ -118,24 +172,33 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     }
   };
 
+  // Ambient capture streams to ElevenLabs Scribe in real time (unlike the
+  // "Recap" button above, which records one clip and transcribes it after
+  // the fact) — this is what lets live suggestions surface mid-consult
+  // instead of only once it's over.
   const toggleCapture = async () => {
     if (captureSettling) return;
     if (capturing) {
       setCapturing(false);
       setCaptureSettling(true);
       toast.message("Processing capture…");
-      const clip = await recorder.stop();
-      if (clip) await submitRecap(clip.base64, clip.filename);
+      scribe.disconnect();
+      const finalTranscript = transcriptRef.current.trim();
+      transcriptRef.current = "";
+      segmentsSinceSuggestRef.current = 0;
+      setSuggestion(null);
+      if (finalTranscript) await submitRecap({ text: finalTranscript });
       setCaptureSettling(false);
       toast.success("Visit context ready", { description: "Capture is paused and the clinical context is up to date." });
       return;
     }
     try {
-      await recorder.start();
+      const { token } = await api.get<{ token: string }>("/api/v1/visits/scribe-token");
+      await scribe.connect({ token, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       setCapturing(true);
       toast.success("Listening", { description: "With patient consent. Tap again anytime to pause." });
-    } catch {
-      toast.error("Couldn't access the microphone — check your browser permissions.");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't start listening — check your microphone permissions.");
     }
   };
 
@@ -238,6 +301,18 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
                 <p className="text-[12px] text-black/[0.48]">Clinical context</p>
                 <p className="mt-3 max-w-[560px] font-display text-[31px] font-light leading-[1.05] tracking-[-0.045em]">{appt?.symptoms ?? "Open consultation"}</p>
                 {lastVisit && <p className="mt-5 max-w-[580px] text-[14px] leading-relaxed text-black/[0.62]"><span className="font-medium text-black/80">Last visit · {fmtDate(lastVisit.date)}</span><br />{lastVisit.note}</p>}
+
+                {/* Doctor-facing only, grounded only in what's actually been
+                    said so far — a prompt for the doctor's own judgment,
+                    never a diagnosis. See openai-service.js's
+                    suggestDuringConsult for the full framing. */}
+                {suggestion && (
+                  <div className="mt-5 flex max-w-[580px] items-start gap-3 rounded-[24px] bg-primary/[0.14] px-4 py-3.5">
+                    <Lightbulb size={15} className="mt-0.5 shrink-0 text-primary-ink" />
+                    <p className="min-w-0 flex-1 text-[13.5px] leading-relaxed text-black/80">{suggestion}</p>
+                    <button onClick={() => setSuggestion(null)} className="shrink-0 text-black/40" aria-label="Dismiss suggestion"><X size={15} /></button>
+                  </div>
+                )}
 
                 <div className="mt-10 grid gap-3 sm:grid-cols-2">
                   <button onClick={toggleCapture} disabled={captureSettling} aria-label={captureSettling ? "Processing ambient capture" : capturing ? "Pause ambient capture" : "Start ambient capture"} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card disabled:opacity-[0.72]">
