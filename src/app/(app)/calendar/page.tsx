@@ -104,7 +104,8 @@ export default function CalendarPage() {
   const [now, setNow] = useState(new Date());
   const [actionsFor, setActionsFor] = useState<Appointment | null>(null);
   const [reschedulingFor, setReschedulingFor] = useState<Appointment | null>(null);
-  const { cancelAppointment } = useClinic();
+  const { cancelAppointment, checkInAppointment } = useClinic();
+  const [checkingIn, setCheckingIn] = useState(false);
 
   useEffect(() => {
     if (!doctorId && doctors?.[0]) setDoctorId(doctors[0].id);
@@ -166,6 +167,20 @@ export default function CalendarPage() {
   const nowTop = topOf(now.toISOString());
   const nowVisible = isToday && nowTop > 0 && nowTop < TIMELINE_HEIGHT;
   const slotMinutes = doctors?.find((d) => d.id === doctorId)?.slotMinutes ?? 15;
+
+  const onCheckIn = async () => {
+    if (!actionsFor) return;
+    setCheckingIn(true);
+    try {
+      await checkInAppointment(actionsFor.id, actionsFor.doctorId);
+      toast.success("Checked in");
+      setActionsFor(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't check them in.");
+    } finally {
+      setCheckingIn(false);
+    }
+  };
 
   const onCancelAppointment = async () => {
     if (!actionsFor) return;
@@ -288,6 +303,11 @@ export default function CalendarPage() {
 
       <Sheet open={!!actionsFor} onOpenChange={(o) => !o && setActionsFor(null)} title={actionsFor?.status === "blocked" ? "Blocked time" : "Appointment"}>
         <div className="space-y-3">
+          {actionsFor?.status === "confirmed" && (
+            <Button size="lg" className="w-full" onClick={onCheckIn} disabled={checkingIn}>
+              {checkingIn ? "Checking in…" : "Check in"}
+            </Button>
+          )}
           <Button size="lg" className="w-full" onClick={() => { setReschedulingFor(actionsFor); setActionsFor(null); }}>
             {actionsFor?.status === "blocked" ? "Shift this block" : "Reschedule"}
           </Button>

@@ -182,6 +182,38 @@ export function fromApiQueueItem(q: ApiQueueItem): AdaptedQueueItem {
   };
 }
 
+// ─── Possible no-show ─────────────────────────────────────────────────────────
+// GET /api/v1/queue's second list, alongside the queue itself — booked
+// appointments past the clinic's grace period with nobody checked in.
+// Computed fresh on every fetch by the backend, never persisted, so there's
+// no separate "state" to adapt beyond the raw appointment fields.
+
+export interface ApiPossibleNoShow {
+  id: string;
+  doctorId: string;
+  patientId: string;
+  timeslot: string;
+  symptoms?: string | null;
+}
+
+export interface PossibleNoShow {
+  appointmentId: string;
+  doctorId: string;
+  patientId: string;
+  startsAt: string;
+  symptoms?: string;
+}
+
+export function fromApiPossibleNoShow(a: ApiPossibleNoShow): PossibleNoShow {
+  return {
+    appointmentId: a.id,
+    doctorId: a.doctorId,
+    patientId: a.patientId,
+    startsAt: a.timeslot,
+    symptoms: a.symptoms ?? undefined,
+  };
+}
+
 // ─── Visit ────────────────────────────────────────────────────────────────────
 
 export interface ApiRxAttachment { path: string; type: "photo" | "digital"; uploadedAt: string }

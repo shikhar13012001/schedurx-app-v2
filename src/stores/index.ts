@@ -109,6 +109,8 @@ type ClinicStore = {
   jumpTo: (doctorId: string, queueId: string) => Promise<void>;
   reorderQueue: (ids: string[]) => Promise<void>;
   addWalkIn: (p: { patientId?: string; doctorId: string; displayName?: string; phoneNumber?: string }) => Promise<void>;
+  checkInAppointment: (appointmentId: string, doctorId: string) => Promise<void>;
+  confirmNoShow: (appointmentId: string) => Promise<void>;
   addAppointment: (input: {
     doctorId: string; start: string; end?: string; reason?: string; notes?: string; mode?: string; tokenRequested?: boolean;
     patient: { phone: string; name?: string; age?: number; gender?: string };
@@ -168,6 +170,18 @@ export const useClinic = create<ClinicStore>()((set, get) => ({
   addWalkIn: async ({ patientId, doctorId, displayName, phoneNumber }) => {
     await api.post("/api/v1/queue/walk-in", { doctorId, patientId, displayName, phoneNumber });
     await invalidate(["queue", clinicId()]);
+  },
+  // Same backend entry point as addWalkIn — passing appointmentId is what
+  // tells it this is a real booking checking in, not a walk-in (the backend
+  // derives doctorId/patientId itself from the appointment either way).
+  checkInAppointment: async (appointmentId, doctorId) => {
+    await api.post("/api/v1/queue/walk-in", { appointmentId, doctorId });
+    await invalidate(["queue", clinicId()]);
+  },
+  confirmNoShow: async (appointmentId) => {
+    await api.post("/api/v1/queue/confirm-no-show", { appointmentId });
+    await invalidate(["queue", clinicId()]);
+    await invalidate(["appointments", clinicId()]);
   },
   addAppointment: async (input) => {
     // A token-requested booking doesn't create an Appointment yet (pay-first —

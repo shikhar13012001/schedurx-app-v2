@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Reorder, useDragControls } from "framer-motion";
 import { ArrowRight, GripVertical, UserRoundPlus } from "lucide-react";
+import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { useClinic } from "@/stores";
-import { useQueue, activeQueue } from "@/hooks/use-queue";
+import { useQueue, usePossibleNoShows, activeQueue } from "@/hooks/use-queue";
 import { useAppointments } from "@/hooks/use-appointments";
 import { usePatients } from "@/hooks/use-patients";
-import type { AdaptedQueueItem } from "@/lib/adapters";
+import { ApiError } from "@/lib/api-client";
+import type { AdaptedQueueItem, PossibleNoShow } from "@/lib/adapters";
 import { cn, fmtTime, toDateKey } from "@/lib/utils";
 
 function waitLabel(arrivedAt?: string) {
@@ -107,6 +109,96 @@ function QueueRow({
   );
 }
 
+// One tap either resolves the prompt (patient turned up late) or finalizes
+// it — never automatic, matching the check-in plan's "a person confirms it"
+// scope. Shown regardless of whether anyone else is currently in the active
+// queue, since a no-show can happen while the doctor is mid-consult with a
+// different patient entirely.
+function PossibleNoShowCard({ candidate }: { candidate: PossibleNoShow }) {
+  const { checkInAppointment, confirmNoShow } = useClinic();
+  const { data: patients } = usePatients();
+  const [busy, setBusy] = useState<"checkin" | "noshow" | null>(null);
+  const patient = patients?.find((p) => p.id === candidate.patientId);
+  const mins = Math.max(0, Math.round((Date.now() - +new Date(candidate.startsAt)) / 60000));
+
+  const onCheckIn = async () => {
+    setBusy("checkin");
+    try {
+      await checkInAppointment(candidate.appointmentId, candidate.doctorId);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't check them in.");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const onConfirm = async () => {
+    if (!window.confirm(`Mark ${patient?.name ?? "this patient"} as a no-show? They'll be notified.`)) return;
+    setBusy("noshow");
+    try {
+      await confirmNoShow(candidate.appointmentId);
+      toast.success("Marked as a no-show");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't confirm that no-show.");
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="rounded-[22px] bg-warning-soft px-4 py-3.5">
+      <p className="text-[14.5px] font-semibold text-ink">{patient?.name ?? "Patient"} hasn&apos;t checked in</p>
+      <p className="mt-0.5 text-[12.5px] text-warning">
+        {fmtTime(candidate.startsAt)} appointment · {mins} min past start, no arrival logged.
+      </p>
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={onCheckIn}
+          disabled={busy !== null}
+          className="pressable h-9 flex-1 rounded-pill bg-charcoal text-[12.5px] font-medium text-white disabled:opacity-60"
+        >
+          {busy === "checkin" ? "Checking in…" : "They arrived"}
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={busy !== null}
+          className="pressable h-9 flex-1 rounded-pill bg-danger text-[12.5px] font-medium text-white disabled:opacity-60"
+        >
+          {busy === "noshow" ? "Confirming…" : "Confirm no-show"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ArrivingRow({ appointment, patient }: { appointment: { id: string; doctorId: string; startsAt: string; critical?: boolean }; patient?: { name: string } }) {
+  const { checkInAppointment } = useClinic();
+  const [busy, setBusy] = useState(false);
+
+  const onCheckIn = async () => {
+    setBusy(true);
+    try {
+      await checkInAppointment(appointment.id, appointment.doctorId);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't check them in.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-[56px] items-center gap-3">
+      <span className="w-[54px] shrink-0 text-[12px] tabular-nums text-muted">{fmtTime(appointment.startsAt)}</span>
+      <p className="min-w-0 flex-1 truncate text-[14px] font-medium">{patient?.name ?? "Patient"}</p>
+      {appointment.critical && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="Critical" />}
+      <button
+        onClick={onCheckIn}
+        disabled={busy}
+        className="pressable h-8 shrink-0 rounded-pill bg-surface-2 px-3.5 text-[12px] font-medium text-ink disabled:opacity-60"
+      >
+        {busy ? "Checking in…" : "Check in"}
+      </button>
+    </div>
+  );
+}
+
 export function QueueList({ doctorId }: { doctorId: string }) {
   const { reorderQueue, jumpTo } = useClinic();
   const { data: queue = [] } = useQueue();
@@ -114,6 +206,7 @@ export function QueueList({ doctorId }: { doctorId: string }) {
   // this shares its cache entry rather than triggering a second request.
   const { data: appointments = [] } = useAppointments();
   const { data: patients } = usePatients();
+  const { data: possibleNoShows = [] } = usePossibleNoShows();
   const active = useMemo(() => activeQueue(queue).filter((q) => q.doctorId === doctorId), [queue, doctorId]);
   const otherActive = useMemo(
     () => activeQueue(queue).filter((q) => q.doctorId !== doctorId).map((q) => q.id),
@@ -121,43 +214,52 @@ export function QueueList({ doctorId }: { doctorId: string }) {
   );
   const currentId = (active.find((q) => q.state === "in_room") ?? active[0])?.id;
 
+  const noShowsForDoctor = useMemo(() => possibleNoShows.filter((c) => c.doctorId === doctorId), [possibleNoShows, doctorId]);
+  const noShowIds = useMemo(() => new Set(noShowsForDoctor.map((c) => c.appointmentId)), [noShowsForDoctor]);
+
+  const noShowSection = noShowsForDoctor.length > 0 && (
+    <div className="mb-3 space-y-2">
+      {noShowsForDoctor.map((candidate) => (
+        <PossibleNoShowCard key={candidate.appointmentId} candidate={candidate} />
+      ))}
+    </div>
+  );
+
   // "The queue is clear" only means nobody's physically checked in — it says
   // nothing about whether the day actually has bookings. Without this, a
   // doctor with a full day of scheduled appointments and nobody checked in
   // yet (e.g. first thing in the morning) saw a blank "clear" state that
-  // read as an empty day.
+  // read as an empty day. Appointments already surfaced above as a possible
+  // no-show are left out here — the no-show card is their one place to live.
   const todayKey = toDateKey(new Date());
   const scheduledToday = useMemo(
     () =>
       appointments
-        .filter((a) => a.doctorId === doctorId && toDateKey(new Date(a.startsAt)) === todayKey && ["confirmed", "tentative"].includes(a.status))
+        .filter((a) => a.doctorId === doctorId && toDateKey(new Date(a.startsAt)) === todayKey && ["confirmed", "tentative"].includes(a.status) && !noShowIds.has(a.id))
         .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)),
-    [appointments, doctorId, todayKey]
+    [appointments, doctorId, todayKey, noShowIds]
   );
 
   if (active.length === 0) {
     if (scheduledToday.length > 0) {
       return (
-        <div className="rounded-panel bg-surface-soft px-5 py-6">
-          <p className="font-display text-[22px] font-light tracking-[-0.04em]">No one checked in yet.</p>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-            {scheduledToday.length} appointment{scheduledToday.length === 1 ? "" : "s"} scheduled today — check a patient in when they arrive.
-          </p>
-          <div className="mt-4 divide-y divide-border/60 border-t border-border/60">
-            {scheduledToday.map((appointment) => {
-              const patient = patients?.find((p) => p.id === appointment.patientId);
-              return (
-                <div key={appointment.id} className="flex min-h-[56px] items-center gap-3">
-                  <span className="w-[54px] shrink-0 text-[12px] tabular-nums text-muted">{fmtTime(appointment.startsAt)}</span>
-                  <p className="min-w-0 flex-1 truncate text-[14px] font-medium">{patient?.name ?? "Patient"}</p>
-                  {appointment.critical && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="Critical" />}
-                </div>
-              );
-            })}
+        <>
+          {noShowSection}
+          <div className="rounded-panel bg-surface-soft px-5 py-6">
+            <p className="font-display text-[22px] font-light tracking-[-0.04em]">No one checked in yet.</p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+              {scheduledToday.length} appointment{scheduledToday.length === 1 ? "" : "s"} scheduled today — check a patient in when they arrive.
+            </p>
+            <div className="mt-4 divide-y divide-border/60 border-t border-border/60">
+              {scheduledToday.map((appointment) => (
+                <ArrivingRow key={appointment.id} appointment={appointment} patient={patients?.find((p) => p.id === appointment.patientId)} />
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       );
     }
+    if (noShowSection) return <>{noShowSection}</>;
     return (
       <div className="rounded-panel bg-surface-soft px-6 py-10 text-center">
         <p className="font-display text-[27px] font-light tracking-[-0.045em]">No appointments today.</p>
@@ -170,6 +272,7 @@ export function QueueList({ doctorId }: { doctorId: string }) {
 
   return (
     <div data-noswipe>
+      {noShowSection}
       <Reorder.Group
         axis="y"
         values={active.map((q) => q.id)}
