@@ -258,7 +258,7 @@ h1, h2, h3 { text-wrap: balance; }
 .pressable:active { transform: scale(.975); }
 
 /* Fine clinic-rhythm progress, adapted from the reference language. */
-.metric-track { position: relative; height: 24px; border-radius: 999px; background: rgb(var(--surface-2)); }
+.metric-track { position: relative; height: 24px; }
 .metric-marker { pointer-events: none; }
 
 /* Chat: white breathing space and restrained bubbles. */

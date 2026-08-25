@@ -59,12 +59,21 @@ function ClinicRhythm({ completed, remaining }: { completed: number; remaining: 
   const pct = Math.min(100, Math.max(0, (completed / total) * 100));
   return (
     <div className="mt-7">
-      <div className="metric-track relative h-8 overflow-hidden" aria-label={`${completed} completed, ${remaining} remaining`}>
-        <div className="absolute inset-y-0 left-0 flex items-center gap-[2px] overflow-hidden" style={{ width: `${Math.max(8, pct)}%` }}>
-          {Array.from({ length: 24 }).map((_, index) => (
-            <span key={index} className="h-5 w-px shrink-0 bg-charcoal/65 dark:bg-white/75" />
-          ))}
-        </div>
+      <div
+        className="metric-track relative h-8 overflow-hidden rounded-full bg-charcoal/[0.07] dark:bg-white/[0.09]"
+        aria-label={`${completed} completed, ${remaining} remaining`}
+      >
+        {/* A repeating gradient, not a fixed set of ticks — the hatch
+            pattern tiles across however wide the completed portion is, so
+            it always reaches the marker exactly instead of stopping short
+            as a small fixed-size cluster stuck at the left edge. */}
+        <div
+          className="absolute left-0 top-1/2 h-5 -translate-y-1/2 text-charcoal/70 dark:text-white/80"
+          style={{
+            width: `${Math.max(8, pct)}%`,
+            backgroundImage: "repeating-linear-gradient(90deg, currentColor 0, currentColor 1px, transparent 1px, transparent 3px)",
+          }}
+        />
         <span className="absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-charcoal/[0.78] dark:bg-white/[0.88]" style={{ left: `${pct}%` }} />
         <span className="metric-marker absolute top-1/2 h-7 w-px -translate-y-1/2 bg-charcoal dark:bg-white" style={{ left: `${pct}%` }} />
       </div>
