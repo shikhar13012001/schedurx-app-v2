@@ -1,9 +1,9 @@
 "use client";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { useScribe, CommitStrategy } from "@elevenlabs/react";
-import { ArrowLeft, ArrowRight, Calendar, CalendarClock, Camera, ChevronLeft, ChevronRight, FileText, Lightbulb, Mic, Sparkles, Square, UserRoundPlus, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Calendar, CalendarClock, Camera, ChevronLeft, ChevronRight, FileText, Lightbulb, Sparkles, Square, UserRoundPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +12,8 @@ import { useClinic, useSession } from "@/stores";
 import { useQueue, activeQueue } from "@/hooks/use-queue";
 import { useAppointments } from "@/hooks/use-appointments";
 import { usePatients } from "@/hooks/use-patients";
-import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import { api, ApiError } from "@/lib/api-client";
+import { appendTranscriptSegment, canEndCapture, isMeaningfulTranscript, shouldFetchSuggestion, tapCaptureAction, type CaptureState } from "@/lib/capture-session";
 import { queryClient } from "@/lib/query-client";
 import { cn, fmtDate, fmtTime, toDateKey } from "@/lib/utils";
 
@@ -40,8 +40,6 @@ const CLINICAL_KEYTERMS = [
   "ORS", "Digene",
 ];
 
-type CaptureState = "idle" | "capturing" | "paused";
-
 // Walk-ins with no patient record have nowhere to link — renders as a plain,
 // non-interactive wrapper for them instead of a dead/empty href.
 function PatientLink({ patientId, className, children }: { patientId?: string; className?: string; children: ReactNode }) {
@@ -50,23 +48,28 @@ function PatientLink({ patientId, className, children }: { patientId?: string; c
 }
 
 export function NowServing({ doctorId, compact = false }: { doctorId: string; compact?: boolean }) {
-  const { next, prev, settings, addTask } = useClinic();
+  const { next, prev, addTask } = useClinic();
   const { data: queue = [] } = useQueue();
   const { data: appointments = [] } = useAppointments({ date: toDateKey(new Date()) });
   const { data: patients } = usePatients();
   const role = useSession((s) => s.session?.role);
   const clinicId = useSession((s) => s.session?.clinicId);
-  const [recapping, setRecapping] = useState(false);
   // Local to this component — nothing else in the app reads ambient-capture
   // state, so this no longer lives in the global store (it used to, as a
   // plain boolean; a three-state session needs more than that anyway).
   const [captureState, setCaptureState] = useState<CaptureState>("idle");
   const [captureSettling, setCaptureSettling] = useState(false);
+  // Tells the page shell to ignore swipe-tab-navigation while a session is
+  // open — captureState/transcriptRef are local to this component, so an
+  // accidental swipe away from Home would otherwise silently drop them.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("srx-capture-active", { detail: captureState !== "idle" }));
+    return () => { window.dispatchEvent(new CustomEvent("srx-capture-active", { detail: false })); };
+  }, [captureState]);
   const [fu, setFu] = useState<string | null>(null);
   const [customFollowUpOpen, setCustomFollowUpOpen] = useState(false);
   const [encounterOpen, setEncounterOpen] = useState(false);
   const [suggestion, setSuggestion] = useState<string | null>(null);
-  const recorder = useVoiceRecorder();
   const rxFileRef = useRef<HTMLInputElement>(null);
   // Accumulated across the whole ambient-capture session, including across
   // a pause/resume — read at End time to build the final note, so a plain
@@ -114,10 +117,10 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     noVerbatim: true,
     keyterms: CLINICAL_KEYTERMS,
     onCommittedTranscript: (data: { text?: string }) => {
-      if (!data.text) return;
-      transcriptRef.current = transcriptRef.current ? `${transcriptRef.current} ${data.text}` : data.text;
+      if (!data.text?.trim()) return;
+      transcriptRef.current = appendTranscriptSegment(transcriptRef.current, data.text);
       segmentsSinceSuggestRef.current += 1;
-      if (segmentsSinceSuggestRef.current >= SUGGEST_EVERY_N_SEGMENTS) {
+      if (shouldFetchSuggestion(segmentsSinceSuggestRef.current, SUGGEST_EVERY_N_SEGMENTS)) {
         segmentsSinceSuggestRef.current = 0;
         void fetchSuggestion();
       }
@@ -185,40 +188,23 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     ]);
   };
 
-  // Recap and ambient capture both end up here — record, stop, turn the
-  // result into a structured note via POST /:visitId/recap. Recap sends
-  // {audioBase64} (transcribed server-side via Whisper); real-time ambient
-  // capture already has the transcript, so it sends {text} directly — the
-  // route accepts either.
-  const submitRecap = async (payload: { audioBase64: string; filename: string } | { text: string }) => {
+  // Ambient capture is the only recording path now — the transcript is
+  // already in hand, so this always sends {text}; the /recap route itself
+  // still also accepts {audioBase64} for any other caller.
+  const submitRecap = async (text: string) => {
     if (!patient) {
       toast.error("No patient file to save this to — this looks like a walk-in with no record yet.");
       return;
     }
     try {
       const visitId = await ensureVisitId(patient.id);
-      const { visit: updated } = await api.post<{ visit: { notes: string | null } }>(`/api/v1/visits/${visitId}/recap`, payload);
+      const { visit: updated } = await api.post<{ visit: { notes: string | null } }>(`/api/v1/visits/${visitId}/recap`, { text });
       await invalidatePatientData(patient.id);
       toast.success(`Recap saved to ${displayName?.split(" ")[0] ?? "patient"}'s file`, { description: updated.notes ?? undefined });
       return visitId;
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't save that recap.");
       return undefined;
-    }
-  };
-
-  const doRecap = async () => {
-    if (recorder.recording) {
-      setRecapping(false);
-      const clip = await recorder.stop();
-      if (clip) await submitRecap({ audioBase64: clip.base64, filename: clip.filename });
-      return;
-    }
-    try {
-      await recorder.start();
-      setRecapping(true);
-    } catch {
-      toast.error("Couldn't access the microphone — check your browser permissions.");
     }
   };
 
@@ -344,6 +330,17 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     }
   };
 
+  // Single tap-to-cycle handler shared by both control surfaces (the
+  // compact hero row and the full encounter modal) — one source of truth
+  // for what a tap does at each state, instead of two copies that could
+  // drift apart.
+  const handleCaptureTap = () => {
+    const action = tapCaptureAction(captureState);
+    if (action === "start") void startCapture();
+    else if (action === "pause") pauseCapture();
+    else void resumeCapture();
+  };
+
   // Uploads the session's recording onto the visit that was just created/
   // updated by submitRecap — reuses the same upload-url + attachments flow
   // as the prescription-photo attach, just tagged "audio". Best-effort: a
@@ -362,7 +359,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   };
 
   const endCapture = async () => {
-    if (captureState === "idle") return;
+    if (!canEndCapture(captureState)) return;
     if (captureState === "capturing") scribe.disconnect();
     setCaptureState("idle");
     setCaptureSettling(true);
@@ -371,9 +368,9 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     segmentsSinceSuggestRef.current = 0;
     setSuggestion(null);
     const clip = await stopAudioRecording();
-    if (finalTranscript.length >= MIN_TRANSCRIPT_CHARS) {
+    if (isMeaningfulTranscript(finalTranscript, MIN_TRANSCRIPT_CHARS)) {
       toast.message("Processing capture…");
-      const visitId = await submitRecap({ text: finalTranscript });
+      const visitId = await submitRecap(finalTranscript);
       if (visitId && clip) await uploadCaptureRecording(visitId, clip);
       toast.success("Visit context ready", { description: "The clinical note is up to date." });
     }
@@ -442,25 +439,21 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
               <div className="mt-5 flex items-center justify-between gap-3">
                 <button onClick={() => void goPrev()} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.12] text-white" aria-label="Previous patient"><ChevronLeft size={20} /></button>
                 {role === "doctor" ? (
-                  settings.captureMode === "ambient" ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => { if (captureState === "idle") void startCapture(); else if (captureState === "capturing") pauseCapture(); else void resumeCapture(); }}
-                        className="pressable"
-                        disabled={captureSettling}
-                        aria-label={captureSettling ? "Processing ambient capture" : captureState === "capturing" ? "Pause ambient capture" : captureState === "paused" ? "Resume ambient capture" : "Start ambient capture"}
-                      >
-                        <AIControl size={62} state={captureSettling ? "thinking" : captureState === "capturing" ? "live" : "idle"} icon={false} />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleCaptureTap}
+                      className="pressable"
+                      disabled={captureSettling}
+                      aria-label={captureSettling ? "Processing ambient capture" : captureState === "capturing" ? "Pause ambient capture" : captureState === "paused" ? "Resume ambient capture" : "Start ambient capture"}
+                    >
+                      <AIControl size={62} state={captureSettling ? "thinking" : captureState === "capturing" ? "live" : "idle"} icon={false} />
+                    </button>
+                    {canEndCapture(captureState) && (
+                      <button onClick={() => void endCapture()} disabled={captureSettling} className="pressable flex h-10 w-10 items-center justify-center rounded-full bg-danger text-white disabled:opacity-60" aria-label="End session">
+                        <Square size={13} fill="currentColor" />
                       </button>
-                      {captureState !== "idle" && (
-                        <button onClick={() => void endCapture()} disabled={captureSettling} className="pressable flex h-10 w-10 items-center justify-center rounded-full bg-danger text-white disabled:opacity-60" aria-label="End session">
-                          <Square size={13} fill="currentColor" />
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <button onClick={doRecap} className={cn("pressable flex h-12 items-center gap-2 rounded-pill px-5 text-[13px] font-medium", recapping ? "bg-danger text-white" : "bg-white text-ink")}><Mic size={16} /> {recapping ? "Tap to finish" : "Recap"}</button>
-                  )
+                    )}
+                  </div>
                 ) : <span className="text-[12px] text-white/[0.56]">{active.length} in queue</span>}
                 <button onClick={() => void goNext()} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-primary text-charcoal" aria-label="Next patient"><ChevronRight size={20} /></button>
               </div>
@@ -540,7 +533,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
 
                 <div className="mt-10 grid gap-3 sm:grid-cols-2">
                   <button
-                    onClick={() => { if (captureState === "idle") void startCapture(); else if (captureState === "capturing") pauseCapture(); else void resumeCapture(); }}
+                    onClick={handleCaptureTap}
                     disabled={captureSettling}
                     aria-label={captureSettling ? "Processing ambient capture" : captureState === "capturing" ? "Pause ambient capture" : captureState === "paused" ? "Resume ambient capture" : "Start ambient capture"}
                     className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card disabled:opacity-[0.72]"
@@ -553,7 +546,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
                       </span>
                     </span>
                   </button>
-                  {captureState !== "idle" ? (
+                  {canEndCapture(captureState) ? (
                     <button onClick={() => void endCapture()} disabled={captureSettling} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card disabled:opacity-[0.72]">
                       <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-danger text-white"><Square size={20} fill="currentColor" /></span>
                       <span><span className="block text-[13px] text-black/[0.48]">Session</span><span className="mt-1 block text-[18px] font-medium">End &amp; save note</span></span>
@@ -570,7 +563,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
                       <span><span className="block text-[13px] text-black/[0.48]">Patient record</span><span className="mt-1 block text-[18px] font-medium">Open history</span></span>
                     </Link>
                   )}
-                  {captureState !== "idle" && (
+                  {canEndCapture(captureState) && (
                     <button onClick={() => rxFileRef.current?.click()} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card">
                       <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-white"><Camera size={21} /></span>
                       <span><span className="block text-[13px] text-black/[0.48]">Prescription</span><span className="mt-1 block text-[18px] font-medium">Attach a photo</span></span>

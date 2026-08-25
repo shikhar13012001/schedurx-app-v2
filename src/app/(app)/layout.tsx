@@ -68,12 +68,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("srx-ai-open", openAI);
   }, [aiEnabled]);
 
+  // Ambient capture keeps its transcript-so-far in local component state,
+  // tied to the Home page — an accidental swipe to another tab mid-consult
+  // would unmount it and silently lose everything captured. now-serving.tsx
+  // broadcasts this whenever a session opens/closes; while one's open, a
+  // swipe that starts anywhere on the page (not just on the capture card
+  // itself, which data-noswipe already covers) is ignored instead of
+  // navigating away.
+  const captureActive = useRef(false);
+  useEffect(() => {
+    const onCapture = (e: Event) => { captureActive.current = Boolean((e as CustomEvent<boolean>).detail); };
+    window.addEventListener("srx-capture-active", onCapture);
+    return () => window.removeEventListener("srx-capture-active", onCapture);
+  }, []);
+
   const [dragX, setDragX] = useState(0);
   const [navDir, setNavDir] = useState(0);
   const touch = useRef<{ x: number; y: number; block: boolean; locked: null | "h" | "v" } | null>(null);
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     const t = e.touches[0];
-    const blocked = (e.target as HTMLElement).closest("[data-noswipe]") != null;
+    const blocked = captureActive.current || (e.target as HTMLElement).closest("[data-noswipe]") != null;
     touch.current = { x: t.clientX, y: t.clientY, block: blocked, locked: null };
   }, []);
   const onTouchMove = useCallback((e: React.TouchEvent) => {

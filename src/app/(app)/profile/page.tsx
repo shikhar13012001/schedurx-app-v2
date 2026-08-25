@@ -215,9 +215,6 @@ export default function ProfilePage() {
 
       {isDoctor && (
         <SettingGroup title="Clinical">
-          <SettingRow title="Consultation capture" hint={settings.captureMode === "ambient" ? "ScheduRx listens through the visit and drafts a note." : "Speak a short recap after the patient leaves."}>
-            <Segmented value={settings.captureMode} onChange={(value) => { trySetting("captureMode", value as "ambient" | "recap"); toast(value === "ambient" ? "Ambient capture on." : "Recap mode on."); }} options={[{ value: "ambient", label: "Ambient" }, { value: "recap", label: "Recap" }]} />
-          </SettingRow>
           <ToggleRow title="Auto follow-up detection" hint='Understands phrases like “see me in two weeks”.' checked={settings.autoFollowUp} onChange={(value) => trySetting("autoFollowUp", value)} />
           <ToggleRow title="AI assistant" hint="Block time, find history and create tasks." checked={settings.aiAssistant} onChange={(value) => trySetting("aiAssistant", value)} icon={<Sparkles size={14} />} />
         </SettingGroup>
