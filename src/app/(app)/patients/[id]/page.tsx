@@ -18,23 +18,14 @@ import { useFindOrCreateThread } from "@/hooks/use-threads";
 import { api, ApiError } from "@/lib/api-client";
 import { queryClient } from "@/lib/query-client";
 import { cn, fmtDate, fmtTime } from "@/lib/utils";
-import type { ApptStatus, VisitMode } from "@/lib/types";
+import { APPT_STATUS_META } from "@/lib/appt-status";
+import type { VisitMode } from "@/lib/types";
 
 const MODE_META: Record<VisitMode, { icon: React.ElementType; label: string }> = {
   clinic: { icon: Building2, label: "In clinic" },
   video: { icon: Video, label: "Video" },
   audio: { icon: Phone, label: "Audio" },
   text: { icon: MessageSquareText, label: "Text consult" },
-};
-
-const APPT_STATUS_META: Record<ApptStatus, { label: string; tone: React.ComponentProps<typeof Badge>["tone"] }> = {
-  confirmed: { label: "Booked", tone: "primary" },
-  tentative: { label: "Booked", tone: "primary" },
-  waitlist: { label: "Waitlisted", tone: "neutral" },
-  completed: { label: "Completed", tone: "success" },
-  no_show: { label: "No-show", tone: "danger" },
-  cancelled: { label: "Cancelled", tone: "warning" },
-  blocked: { label: "Blocked", tone: "neutral" },
 };
 
 export default function PatientProfilePage() {

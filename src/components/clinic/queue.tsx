@@ -1,17 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Reorder, useDragControls } from "framer-motion";
 import { ArrowRight, GripVertical, UserRoundPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { useClinic } from "@/stores";
 import { useQueue, usePossibleNoShows, activeQueue } from "@/hooks/use-queue";
 import { useAppointments } from "@/hooks/use-appointments";
 import { usePatients } from "@/hooks/use-patients";
 import { ApiError } from "@/lib/api-client";
+import { APPT_STATUS_META } from "@/lib/appt-status";
 import type { AdaptedQueueItem, PossibleNoShow } from "@/lib/adapters";
+import type { ApptStatus } from "@/lib/types";
 import { cn, fmtTime, toDateKey } from "@/lib/utils";
+
+const BOOKABLE_STATUSES: ApptStatus[] = ["confirmed", "tentative"];
+
+// Walk-ins with no patient record have nowhere to link — renders as a plain,
+// non-interactive wrapper for them instead of a dead/empty href.
+function PatientLink({ patientId, className, children }: { patientId?: string; className?: string; children: ReactNode }) {
+  if (!patientId) return <div className={className}>{children}</div>;
+  return (
+    <Link href={`/patients/${patientId}`} className={className}>
+      {children}
+    </Link>
+  );
+}
 
 function waitLabel(arrivedAt?: string) {
   if (!arrivedAt) return "waiting";
@@ -73,11 +90,18 @@ function QueueRow({
         {String(index + 1).padStart(2, "0")}
       </span>
 
-      <Avatar id={patient?.id ?? item.id} name={displayName} size={42} />
+      <PatientLink patientId={patient?.id}>
+        <Avatar id={patient?.id ?? item.id} name={displayName} size={42} />
+      </PatientLink>
 
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <p className={cn("truncate text-[15px] font-medium tracking-[-0.02em]", isCurrent && "text-white")}>{displayName}</p>
+          <PatientLink
+            patientId={patient?.id}
+            className={cn("truncate text-[15px] font-medium tracking-[-0.02em] hover:underline", isCurrent && "text-white")}
+          >
+            {displayName}
+          </PatientLink>
           {appt?.critical && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="Critical" />}
         </div>
         <div className={cn("mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px]", isCurrent ? "text-white/[0.55]" : "text-muted")}> 
@@ -169,9 +193,16 @@ function PossibleNoShowCard({ candidate }: { candidate: PossibleNoShow }) {
   );
 }
 
-function ArrivingRow({ appointment, patient }: { appointment: { id: string; doctorId: string; startsAt: string; critical?: boolean }; patient?: { name: string } }) {
+function ArrivingRow({
+  appointment,
+  patient,
+}: {
+  appointment: { id: string; doctorId: string; startsAt: string; critical?: boolean; status: ApptStatus };
+  patient?: { id: string; name: string };
+}) {
   const { checkInAppointment } = useClinic();
   const [busy, setBusy] = useState(false);
+  const bookable = BOOKABLE_STATUSES.includes(appointment.status);
 
   const onCheckIn = async () => {
     setBusy(true);
@@ -183,18 +214,28 @@ function ArrivingRow({ appointment, patient }: { appointment: { id: string; doct
     }
   };
 
+  const meta = APPT_STATUS_META[appointment.status];
+
   return (
     <div className="flex min-h-[56px] items-center gap-3">
       <span className="w-[54px] shrink-0 text-[12px] tabular-nums text-muted">{fmtTime(appointment.startsAt)}</span>
-      <p className="min-w-0 flex-1 truncate text-[14px] font-medium">{patient?.name ?? "Patient"}</p>
+      <PatientLink patientId={patient?.id} className="min-w-0 flex-1 truncate text-[14px] font-medium hover:underline">
+        {patient?.name ?? "Patient"}
+      </PatientLink>
       {appointment.critical && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="Critical" />}
-      <button
-        onClick={onCheckIn}
-        disabled={busy}
-        className="pressable h-8 shrink-0 rounded-pill bg-surface-2 px-3.5 text-[12px] font-medium text-ink disabled:opacity-60"
-      >
-        {busy ? "Checking in…" : "Check in"}
-      </button>
+      {bookable ? (
+        <button
+          onClick={onCheckIn}
+          disabled={busy}
+          className="pressable h-8 shrink-0 rounded-pill bg-surface-2 px-3.5 text-[12px] font-medium text-ink disabled:opacity-60"
+        >
+          {busy ? "Checking in…" : "Check in"}
+        </button>
+      ) : (
+        <Badge tone={meta.tone} className="shrink-0">
+          {meta.label}
+        </Badge>
+      )}
     </div>
   );
 }
@@ -213,6 +254,7 @@ export function QueueList({ doctorId }: { doctorId: string }) {
     [queue, doctorId]
   );
   const currentId = (active.find((q) => q.state === "in_room") ?? active[0])?.id;
+  const activeApptIds = useMemo(() => new Set(active.map((q) => q.apptId).filter(Boolean)), [active]);
 
   const noShowsForDoctor = useMemo(() => possibleNoShows.filter((c) => c.doctorId === doctorId), [possibleNoShows, doctorId]);
   const noShowIds = useMemo(() => new Set(noShowsForDoctor.map((c) => c.appointmentId)), [noShowsForDoctor]);
@@ -225,37 +267,63 @@ export function QueueList({ doctorId }: { doctorId: string }) {
     </div>
   );
 
-  // "The queue is clear" only means nobody's physically checked in — it says
-  // nothing about whether the day actually has bookings. Without this, a
-  // doctor with a full day of scheduled appointments and nobody checked in
-  // yet (e.g. first thing in the morning) saw a blank "clear" state that
-  // read as an empty day. Appointments already surfaced above as a possible
-  // no-show are left out here — the no-show card is their one place to live.
+  // The full day's schedule for this doctor, every status included — the
+  // active queue above only shows who's physically checked in, so without
+  // this a front desk glancing at "queue" has no way to see the rest of the
+  // day at a glance. Appointments already surfaced elsewhere (currently
+  // checked in, or flagged as a possible no-show) are left out to avoid
+  // showing the same appointment twice.
   const todayKey = toDateKey(new Date());
-  const scheduledToday = useMemo(
+  const todaysAppointments = useMemo(
     () =>
       appointments
-        .filter((a) => a.doctorId === doctorId && toDateKey(new Date(a.startsAt)) === todayKey && ["confirmed", "tentative"].includes(a.status) && !noShowIds.has(a.id))
+        .filter(
+          (a) =>
+            a.doctorId === doctorId &&
+            toDateKey(new Date(a.startsAt)) === todayKey &&
+            !noShowIds.has(a.id) &&
+            !activeApptIds.has(a.id)
+        )
         .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)),
-    [appointments, doctorId, todayKey, noShowIds]
+    [appointments, doctorId, todayKey, noShowIds, activeApptIds]
+  );
+  const stillToArrive = useMemo(() => todaysAppointments.filter((a) => BOOKABLE_STATUSES.includes(a.status)), [todaysAppointments]);
+
+  const scheduleList = (heading: string) => (
+    <div className="rounded-panel bg-surface-soft px-5 py-5">
+      <p className="text-[13px] font-medium text-muted">{heading}</p>
+      <div className="mt-3 divide-y divide-border/60 border-t border-border/60">
+        {todaysAppointments.map((appointment) => (
+          <ArrivingRow key={appointment.id} appointment={appointment} patient={patients?.find((p) => p.id === appointment.patientId)} />
+        ))}
+      </div>
+    </div>
   );
 
   if (active.length === 0) {
-    if (scheduledToday.length > 0) {
+    if (stillToArrive.length > 0) {
       return (
         <>
           {noShowSection}
           <div className="rounded-panel bg-surface-soft px-5 py-6">
             <p className="font-display text-[22px] font-light tracking-[-0.04em]">No one checked in yet.</p>
             <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-              {scheduledToday.length} appointment{scheduledToday.length === 1 ? "" : "s"} scheduled today — check a patient in when they arrive.
+              {stillToArrive.length} appointment{stillToArrive.length === 1 ? "" : "s"} still to arrive today.
             </p>
             <div className="mt-4 divide-y divide-border/60 border-t border-border/60">
-              {scheduledToday.map((appointment) => (
+              {todaysAppointments.map((appointment) => (
                 <ArrivingRow key={appointment.id} appointment={appointment} patient={patients?.find((p) => p.id === appointment.patientId)} />
               ))}
             </div>
           </div>
+        </>
+      );
+    }
+    if (todaysAppointments.length > 0) {
+      return (
+        <>
+          {noShowSection}
+          {scheduleList("Today's schedule — all caught up")}
         </>
       );
     }
@@ -290,6 +358,7 @@ export function QueueList({ doctorId }: { doctorId: string }) {
         ))}
       </Reorder.Group>
       <p className="mt-3 px-3 text-[11px] leading-relaxed text-faint">Drag the subtle grip to reorder · arrow sends a patient in out of turn.</p>
+      {todaysAppointments.length > 0 && <div className="mt-4">{scheduleList("Rest of today's schedule")}</div>}
     </div>
   );
 }
