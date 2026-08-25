@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Phone } from "lucide-react";
+import { Plus, Trash2, Phone, AlertTriangle, RefreshCw, CheckCircle2 } from "lucide-react";
 import { useClinic, type CommWorkflow, type CommChannel, type CommTrigger } from "@/stores";
 import { useDoctors } from "@/hooks/use-team";
 import { usePhoneRoutes, useCreatePhoneRoute, useUpdatePhoneRoute, useDeletePhoneRoute } from "@/hooks/use-phone-routes";
+import { useMessageFailures, useRetryQueue, type MessageFailure, type RetryQueueItem } from "@/hooks/use-messaging";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -76,6 +77,108 @@ function WorkflowSheet({ open, onOpenChange, workflow, onSave }: {
         </Button>
       </div>
     </Sheet>
+  );
+}
+
+// Relative "X min/hr/days ago" — no date library dependency needed for the
+// coarse granularity this section actually needs.
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+const PURPOSE_LABELS: Record<string, string> = {
+  booking_confirmed: "Booking confirmation",
+  reschedule: "Reschedule notice",
+  cancellation: "Cancellation notice",
+  reminder: "Reminder",
+  pre_appointment: "Pre-visit message",
+  post_appointment: "Post-visit message",
+  review_request: "Review request",
+  missed_call_followup: "Missed-call follow-up",
+  token_payment: "Payment link",
+  team_invite: "Team invite",
+};
+
+function purposeLabel(purpose: string | null): string {
+  return (purpose && PURPOSE_LABELS[purpose]) || purpose || "Message";
+}
+
+function DeliveryRow({ channel, toPhone, purpose, when, detail }: { channel: string; toPhone: string | null; purpose: string | null; when: string; detail: string }) {
+  return (
+    <div className="flex items-start gap-3 rounded-[18px] bg-surface-soft px-4 py-3">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger"><AlertTriangle size={14} /></span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-[13.5px] font-medium">{purposeLabel(purpose)} · {channel}</p>
+          <span className="shrink-0 text-[11px] text-faint">{timeAgo(when)}</span>
+        </div>
+        <p className="truncate text-[12px] text-muted">{toPhone ?? "unknown number"}</p>
+        <p className="mt-0.5 truncate text-[11.5px] text-danger">{detail}</p>
+      </div>
+    </div>
+  );
+}
+
+// Staff-facing view of tonight's delivery-tracking work — until this
+// existed, "did that confirmation actually send" was only answerable by
+// asking an engineer to check the database directly. Two categories, both
+// meaning "this needs a human, automatic retry is done or never applied":
+// real Twilio delivery failures (MessageLog), and retry-queue items that
+// exhausted every attempt (FailedMessage).
+function DeliveryStatusSection() {
+  const { data: failures, isLoading: failuresLoading } = useMessageFailures();
+  const { data: exhausted, isLoading: exhaustedLoading } = useRetryQueue("exhausted");
+
+  const loading = failuresLoading || exhaustedLoading;
+  const failureRows = failures ?? [];
+  const exhaustedRows = exhausted ?? [];
+  const hasIssues = failureRows.length > 0 || exhaustedRows.length > 0;
+
+  return (
+    <section className="rounded-panel bg-surface p-5 shadow-card">
+      <div className="mb-1 flex items-center gap-2">
+        {hasIssues ? <AlertTriangle size={16} className="text-danger" /> : <CheckCircle2 size={16} className="text-primary" />}
+        <h2 className="text-[16px] font-medium">Delivery status</h2>
+      </div>
+      <p className="mb-4 text-[13px] text-muted">Confirmations, reminders, and other messages that didn&apos;t actually reach a patient.</p>
+
+      {loading && <p className="py-4 text-center text-[13px] text-faint">Checking…</p>}
+
+      {!loading && !hasIssues && (
+        <p className="py-4 text-center text-[13px] text-faint">No delivery issues in the last 24 hours.</p>
+      )}
+
+      {!loading && hasIssues && (
+        <div className="space-y-4">
+          {exhaustedRows.length > 0 && (
+            <div>
+              <p className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-muted"><RefreshCw size={12} /> Gave up after {exhaustedRows[0]?.maxAttempts ?? 3} attempts</p>
+              <div className="space-y-2">
+                {exhaustedRows.slice(0, 10).map((row: RetryQueueItem) => (
+                  <DeliveryRow key={row.id} channel={row.channel} toPhone={row.toPhone} purpose={row.purpose} when={row.updatedAt} detail={row.lastError ?? "Unknown error"} />
+                ))}
+              </div>
+            </div>
+          )}
+          {failureRows.length > 0 && (
+            <div>
+              <p className="mb-2 text-[12px] font-medium text-muted">Twilio reported undelivered</p>
+              <div className="space-y-2">
+                {failureRows.slice(0, 10).map((row: MessageFailure) => (
+                  <DeliveryRow key={row.id} channel={row.channel} toPhone={row.toPhone} purpose={row.purpose} when={row.updatedAt} detail={row.errorMessage ?? row.errorCode ?? row.status} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -197,6 +300,8 @@ export default function AutomationsPage() {
           ))}
         </div>
       </section>
+
+      <DeliveryStatusSection />
 
       <PhoneRoutesSection />
 
