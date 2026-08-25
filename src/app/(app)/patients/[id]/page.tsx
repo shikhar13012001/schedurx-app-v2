@@ -5,24 +5,36 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Building2, Camera, ChevronLeft, FileText, MessageSquareText, Paperclip, Phone, Sparkles, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/input";
 import { BookingSheet } from "@/components/clinic/booking-sheet";
 import { useClinic, useSession } from "@/stores";
 import { usePatient } from "@/hooks/use-patients";
+import { usePatientAppointments } from "@/hooks/use-appointments";
 import { useDoctors } from "@/hooks/use-team";
 import { useFindOrCreateThread } from "@/hooks/use-threads";
 import { api, ApiError } from "@/lib/api-client";
 import { queryClient } from "@/lib/query-client";
-import { cn, fmtDate } from "@/lib/utils";
-import type { VisitMode } from "@/lib/types";
+import { cn, fmtDate, fmtTime } from "@/lib/utils";
+import type { ApptStatus, VisitMode } from "@/lib/types";
 
 const MODE_META: Record<VisitMode, { icon: React.ElementType; label: string }> = {
   clinic: { icon: Building2, label: "In clinic" },
   video: { icon: Video, label: "Video" },
   audio: { icon: Phone, label: "Audio" },
   text: { icon: MessageSquareText, label: "Text consult" },
+};
+
+const APPT_STATUS_META: Record<ApptStatus, { label: string; tone: React.ComponentProps<typeof Badge>["tone"] }> = {
+  confirmed: { label: "Booked", tone: "primary" },
+  tentative: { label: "Booked", tone: "primary" },
+  waitlist: { label: "Waitlisted", tone: "neutral" },
+  completed: { label: "Completed", tone: "success" },
+  no_show: { label: "No-show", tone: "danger" },
+  cancelled: { label: "Cancelled", tone: "warning" },
+  blocked: { label: "Blocked", tone: "neutral" },
 };
 
 export default function PatientProfilePage() {
@@ -38,6 +50,7 @@ export default function PatientProfilePage() {
   const reply = useClinic((s) => s.reply);
   const [showAllVisits, setShowAllVisits] = useState(false);
   const { data: patient, isLoading } = usePatient(id);
+  const { data: appointmentHistory = [] } = usePatientAppointments(id);
   const { data: doctors } = useDoctors();
   const findOrCreateThread = useFindOrCreateThread();
   const [rxOpen, setRxOpen] = useState(false);
@@ -213,6 +226,31 @@ export default function PatientProfilePage() {
         {simple && !showAllVisits && patient.visits.length > 1 && (
           <button onClick={() => setShowAllVisits(true)} className="pressable mt-3 flex h-12 w-full items-center justify-center rounded-pill bg-surface-soft text-[12px] text-muted">Show {patient.visits.length - 1} earlier visit{patient.visits.length > 2 ? "s" : ""}</button>
         )}
+      </section>
+
+      <section>
+        <div className="mb-4">
+          <p className="text-[12px] text-muted">Appointment history</p>
+          <h2 className="mt-1 font-display text-[30px] font-light tracking-[-0.045em]">
+            {appointmentHistory.length} appointment{appointmentHistory.length === 1 ? "" : "s"}
+          </h2>
+        </div>
+        <div className="overflow-hidden rounded-panel bg-surface px-1 shadow-card" data-noswipe>
+          {[...appointmentHistory].reverse().map((appt, index, arr) => {
+            const doctor = doctors?.find((item) => item.id === appt.doctorId);
+            const meta = APPT_STATUS_META[appt.status];
+            return (
+              <div key={appt.id} className={cn("flex items-center gap-3 px-4 py-3.5", index !== arr.length - 1 && "border-b border-border/60")}>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13.5px] font-medium tracking-[-0.01em]">{fmtDate(appt.startsAt)} · {fmtTime(appt.startsAt)}</p>
+                  <p className="mt-0.5 truncate text-[11.5px] text-muted">{doctor ? `Dr. ${doctor.name.split(" ").slice(0, 2).join(" ")}` : "—"}{appt.symptoms ? ` · ${appt.symptoms}` : ""}</p>
+                </div>
+                <Badge tone={meta.tone} className="shrink-0">{meta.label}</Badge>
+              </div>
+            );
+          })}
+          {appointmentHistory.length === 0 && <p className="px-5 py-8 text-center text-[13px] text-muted">No appointments yet.</p>}
+        </div>
       </section>
 
       <section className="grid grid-cols-2 gap-3 text-[12px] text-muted">

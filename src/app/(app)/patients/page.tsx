@@ -22,8 +22,8 @@ const columns: ColumnDef<Patient>[] = [
   },
   { accessorKey: "phone", header: "Phone", cell: ({ getValue }) => <span className="text-[13px] text-muted">{String(getValue())}</span> },
   { accessorKey: "age", header: "Age" },
-  { id: "visits", header: "Visits", accessorFn: (row) => row.visits.length },
-  { id: "last", header: "Last visit", accessorFn: (row) => (row.visits[0] ? fmtDate(row.visits[0].date) : "—") },
+  { id: "visits", header: "Visits", accessorFn: (row) => row.visitsCount },
+  { id: "last", header: "Last visit", accessorFn: (row) => (row.lastVisitDate ? fmtDate(row.lastVisitDate) : "—") },
   {
     id: "tags",
     header: "Tags",

@@ -78,6 +78,8 @@ export interface ApiPatient {
   contactNumber: string;
   age?: number | null;
   gender?: string | null;
+  visitsCount?: number;
+  lastVisitDate?: string | null;
 }
 
 export function fromApiPatient(p: ApiPatient, visits: Visit[] = []): Patient {
@@ -91,6 +93,11 @@ export function fromApiPatient(p: ApiPatient, visits: Visit[] = []): Patient {
     tags: [],
     review: "none",
     visits,
+    // The list endpoint sends a real visitsCount/lastVisitDate but no full
+    // `visits` array (too expensive per-row); the detail page fetches full
+    // `visits` but doesn't send these — either way this resolves correctly.
+    visitsCount: p.visitsCount ?? visits.length,
+    lastVisitDate: p.lastVisitDate ?? visits[0]?.date,
   };
 }
 

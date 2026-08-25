@@ -16,6 +16,15 @@ export type ReviewState = "given" | "link_sent" | "none";
 export interface Patient {
   id: string; name: string; phone: string; age: number; gender: "M" | "F" | "O";
   email?: string; tags: string[]; review: ReviewState; visits: Visit[];
+  // Real per-patient visit count from the backend. Populated on the list
+  // endpoint (which doesn't fetch each patient's full `visits` array — too
+  // expensive); the detail page's own full `visits` fetch is the fallback
+  // via fromApiPatient's `visitsCount ?? visits.length`, so both surfaces
+  // read a correct number through this one field.
+  visitsCount: number;
+  // Same story as visitsCount — the list endpoint's own computed value;
+  // the detail page falls back to visits[0]'s date via fromApiPatient.
+  lastVisitDate?: string;
 }
 
 export type ApptStatus = "confirmed" | "tentative" | "waitlist" | "completed" | "no_show" | "cancelled" | "blocked";
