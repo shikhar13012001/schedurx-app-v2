@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlarmClockOff, CalendarPlus, Video } from "lucide-react";
+import { AlarmClockOff, CalendarPlus } from "lucide-react";
 import { toast } from "sonner";
 import { BookingSheet } from "@/components/clinic/booking-sheet";
 import { BlockTimeSheet } from "@/components/clinic/block-time";
@@ -39,7 +39,7 @@ function TimelineBlock({ appointment, dimmed, onSelect }: { appointment: Appoint
     return (
       <div
         onClick={(event) => { event.stopPropagation(); onSelect(appointment); }}
-        className="pressable absolute inset-x-0 flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-[24px] border-2 px-4 py-3"
+        className="pressable absolute inset-x-0 flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg border-2 px-4 py-3"
         style={{
           top: topOf(appointment.startsAt),
           height,
@@ -57,9 +57,13 @@ function TimelineBlock({ appointment, dimmed, onSelect }: { appointment: Appoint
     );
   }
 
+  const modeLabel = appointment.mode === "video" ? "Video" : appointment.mode === "audio" ? "Audio call" : "In-clinic";
+
   // Orange left-edge accent + tinted background, same --primary token as the
   // blocked treatment but lighter (.12 vs blocked's hatch) so a glance at the
-  // timeline still tells "booked" and "blocked" apart.
+  // timeline still tells "booked" and "blocked" apart. A thin full border
+  // (on top of the accent) plus a tighter corner radius reads as a real
+  // scheduled-event card rather than a status pill.
   return (
     <div
       onClick={(event) => {
@@ -67,27 +71,27 @@ function TimelineBlock({ appointment, dimmed, onSelect }: { appointment: Appoint
         if (!dimmed) onSelect(appointment);
       }}
       className={cn(
-        "absolute inset-x-0 flex flex-col justify-center overflow-hidden rounded-[25px] border-l-4 px-4 shadow-card transition-opacity",
+        "absolute inset-x-0 flex flex-col justify-center overflow-hidden rounded-lg border border-border/60 border-l-[3px] px-3.5 shadow-card transition-opacity",
         dimmed ? "cursor-default opacity-40" : "pressable cursor-pointer",
         appointment.critical && "ring-1 ring-danger/25"
       )}
       style={{
         top: topOf(appointment.startsAt),
         height,
-        borderColor: "rgb(var(--primary))",
+        borderLeftColor: "rgb(var(--primary))",
         backgroundColor: "rgb(var(--primary) / .12)",
       }}
     >
-      <div className="flex min-w-0 items-center gap-2.5">
-        <span className={cn("h-2 w-2 shrink-0 rounded-full", appointment.critical ? "bg-danger" : "bg-primary")} />
-        <p className="min-w-0 flex-1 truncate text-[14px] font-medium tracking-[-0.025em]">{patient?.name ?? "—"}</p>
-        {appointment.pay === "token" && <span className="shrink-0 text-[10px] text-faint"><span aria-hidden>₹</span><span className="sr-only">Token paid</span></span>}
-        {(appointment.mode === "video" || appointment.mode === "audio") && <Video size={14} className="shrink-0 text-muted" />}
+      <div className="flex min-w-0 items-baseline gap-2">
+        <p className="min-w-0 flex-1 truncate text-[13.5px] font-semibold tracking-[-0.02em]">{patient?.name ?? "—"}</p>
+        <span className="shrink-0 text-[11px] tabular-nums text-muted">{fmtTime(appointment.startsAt)}</span>
+        {appointment.critical && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" aria-label="Critical" />}
       </div>
-      {height > 58 && (
-        <div className="mt-1.5 flex items-center gap-2 pl-[18px] text-[11.5px] text-muted">
-          <span>{fmtTime(appointment.startsAt)}</span>
-          {appointment.symptoms && <><span>·</span><span className="truncate">{appointment.symptoms}</span></>}
+      {height > 50 && (
+        <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted">
+          <span className="shrink-0 rounded-md bg-surface/70 px-1.5 py-[3px] font-medium text-ink/70">{modeLabel}</span>
+          {appointment.pay === "token" && <span className="shrink-0 rounded-md bg-surface/70 px-1.5 py-[3px] font-medium text-ink/70">Paid</span>}
+          {appointment.symptoms && <span className="min-w-0 truncate">· {appointment.symptoms}</span>}
         </div>
       )}
     </div>
