@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, Building2, Camera, ChevronLeft, FileText, MessageSquareText, Paperclip, Phone, Sparkles, Video } from "lucide-react";
+import { ArrowRight, Building2, Camera, ChevronLeft, FileText, Mic, MessageSquareText, Paperclip, Phone, Sparkles, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +50,9 @@ export default function PatientProfilePage() {
   const [booking, setBooking] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const attachFor = useRef<string | null>(null);
+  const [openingPath, setOpeningPath] = useState<string | null>(null);
+  const [playingVisitId, setPlayingVisitId] = useState<string | null>(null);
+  const [playingUrl, setPlayingUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (searchParams.get("rx") === "1") setRxOpen(true);
@@ -58,6 +61,17 @@ export default function PatientProfilePage() {
 
   if (isLoading) return null;
   if (!patient) return <p className="pt-12 text-center text-muted">Patient not found.</p>;
+
+  // The patients list's visitsCount/lastVisitDate live under a separate
+  // query key from this page's own — without invalidating it too, the list
+  // shows stale numbers for this patient until a manual reload, even though
+  // this page itself refreshes fine.
+  const invalidatePatientData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["visits", clinicId, patient.id] }),
+      queryClient.invalidateQueries({ queryKey: ["patients", clinicId] }),
+    ]);
+  };
 
   const onAttach = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -70,10 +84,37 @@ export default function PatientProfilePage() {
       });
       await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
       await api.post(`/api/v1/visits/${visitId}/attachments`, { path, type: "photo" });
-      await queryClient.invalidateQueries({ queryKey: ["visits", clinicId, patient.id] });
+      await invalidatePatientData();
       toast.success("Prescription attached", { description: "Saved to the visit and ready to share with the patient." });
     } catch {
       toast.error("Couldn't attach that file — try again.");
+    }
+  };
+
+  const openAttachment = async (visitId: string, path: string) => {
+    setOpeningPath(path);
+    try {
+      const { url } = await api.get<{ url: string }>(`/api/v1/visits/${visitId}/attachments/read-url?path=${encodeURIComponent(path)}`);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error("Couldn't open that file — try again.");
+    } finally {
+      setOpeningPath(null);
+    }
+  };
+
+  const togglePlayRecording = async (visitId: string, path: string) => {
+    if (playingVisitId === visitId) {
+      setPlayingVisitId(null);
+      setPlayingUrl(null);
+      return;
+    }
+    try {
+      const { url } = await api.get<{ url: string }>(`/api/v1/visits/${visitId}/attachments/read-url?path=${encodeURIComponent(path)}`);
+      setPlayingVisitId(visitId);
+      setPlayingUrl(url);
+    } catch {
+      toast.error("Couldn't load that recording — try again.");
     }
   };
 
@@ -116,7 +157,7 @@ export default function PatientProfilePage() {
       });
       await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/pdf" }, body: blob });
       await api.post(`/api/v1/visits/${latest.id}/attachments`, { path, type: "digital" });
-      await queryClient.invalidateQueries({ queryKey: ["visits", clinicId, patient.id] });
+      await invalidatePatientData();
 
       const { url } = await api.get<{ url: string }>(`/api/v1/visits/${latest.id}/attachments/read-url?path=${encodeURIComponent(path)}`);
       const thread = await findOrCreateThread.mutateAsync(patient.id);
@@ -191,23 +232,52 @@ export default function PatientProfilePage() {
           {visitsToShow.map((visit, index) => {
             const Meta = MODE_META[visit.mode];
             const doctor = doctors?.find((item) => item.id === visit.doctorId);
-            const hasRx = visit.rxAttached || visit.rxDigital;
+            const rxAttachments = (visit.attachments ?? []).filter((a) => a.type === "photo" || a.type === "digital");
+            const recordingAttachments = (visit.attachments ?? []).filter((a) => a.type === "audio");
+            const hasRx = rxAttachments.length > 0;
+            const isPlaying = playingVisitId === visit.id;
             return (
-              <article key={visit.id} className={cn("px-4 py-5", index !== visitsToShow.length - 1 && "border-b border-border/60")}> 
+              <article key={visit.id} className={cn("px-4 py-5", index !== visitsToShow.length - 1 && "border-b border-border/60")}>
                 <div className="flex items-center gap-2 text-[11px] text-muted">
-                  <span>{fmtDate(visit.date)}</span><span>·</span><span className="inline-flex items-center gap-1"><Meta.icon size={11} /> {Meta.label}</span>
+                  <span>{fmtDate(visit.date)}{visit.recordedAt ? ` · ${fmtTime(visit.recordedAt)}` : ""}</span><span>·</span><span className="inline-flex items-center gap-1"><Meta.icon size={11} /> {Meta.label}</span>
                   <span className="ml-auto truncate text-faint">{doctor?.name.split(" ").slice(0, 2).join(" ")}</span>
                 </div>
                 <p className="mt-3 text-[16px] font-medium tracking-[-0.025em]">{visit.symptoms}</p>
-                {visit.id !== latest?.id && <p className="mt-2 text-[13px] leading-relaxed text-muted">{visit.note}</p>}
+                {visit.note && <p className="mt-2 text-[13px] leading-relaxed text-muted">{visit.note}</p>}
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
-                  {hasRx ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-pill bg-surface-soft px-3 py-1.5 text-muted"><Paperclip size={11} /> Rx on file</span>
-                  ) : (
+                  {rxAttachments.map((a) => (
+                    <button
+                      key={a.path}
+                      onClick={() => void openAttachment(visit.id, a.path)}
+                      disabled={openingPath === a.path}
+                      className="inline-flex items-center gap-1.5 rounded-pill bg-surface-soft px-3 py-1.5 text-muted disabled:opacity-60"
+                    >
+                      <Paperclip size={11} /> {openingPath === a.path ? "Opening…" : a.type === "digital" ? "Prescription PDF" : "View Rx"}
+                    </button>
+                  ))}
+                  {!hasRx && (
                     <button onClick={() => { attachFor.current = visit.id; fileRef.current?.click(); }} className="inline-flex items-center gap-1.5 rounded-pill bg-surface-soft px-3 py-1.5 text-muted"><Camera size={11} /> Attach Rx</button>
                   )}
+                  {recordingAttachments.map((a) => (
+                    <button
+                      key={a.path}
+                      onClick={() => void togglePlayRecording(visit.id, a.path)}
+                      className="inline-flex items-center gap-1.5 rounded-pill bg-surface-soft px-3 py-1.5 text-muted"
+                    >
+                      <Mic size={11} /> {isPlaying ? "Playing…" : "Play recording"}
+                    </button>
+                  ))}
                   {visit.followUpOn && <span className="rounded-pill bg-surface-soft px-3 py-1.5 text-muted">Follow-up {fmtDate(visit.followUpOn)}</span>}
                 </div>
+                {isPlaying && playingUrl && (
+                  <audio
+                    controls
+                    autoPlay
+                    src={playingUrl}
+                    className="mt-3 w-full"
+                    onEnded={() => { setPlayingVisitId(null); setPlayingUrl(null); }}
+                  />
+                )}
               </article>
             );
           })}

@@ -74,6 +74,15 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   // committed segment.
   const transcriptRef = useRef("");
   const segmentsSinceSuggestRef = useRef(0);
+  // Scribe streams mic audio straight to ElevenLabs — our server never sees
+  // the raw bytes, so nothing's available to play back later unless we
+  // separately record it ourselves. A second independent getUserMedia
+  // stream (browsers allow more than one consumer of the same mic) feeds a
+  // plain MediaRecorder alongside Scribe's own connection, paused/resumed
+  // in lockstep with the capture session.
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const audioRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const fetchSuggestion = async () => {
     const transcript = transcriptRef.current.trim();
@@ -162,6 +171,20 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     return visit.id;
   };
 
+  // Every view that shows this patient's data reads from a different query
+  // key — the patients list (visitsCount/lastVisitDate), this patient's own
+  // detail page, and their visit history. Without invalidating all three,
+  // whichever of those isn't the one currently on screen stays stale until
+  // a manual reload, even though the recap/attachment/recording really did
+  // save.
+  const invalidatePatientData = async (patientId: string) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["visits", clinicId, patientId] }),
+      queryClient.invalidateQueries({ queryKey: ["patient", clinicId, patientId] }),
+      queryClient.invalidateQueries({ queryKey: ["patients", clinicId] }),
+    ]);
+  };
+
   // Recap and ambient capture both end up here — record, stop, turn the
   // result into a structured note via POST /:visitId/recap. Recap sends
   // {audioBase64} (transcribed server-side via Whisper); real-time ambient
@@ -175,10 +198,12 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     try {
       const visitId = await ensureVisitId(patient.id);
       const { visit: updated } = await api.post<{ visit: { notes: string | null } }>(`/api/v1/visits/${visitId}/recap`, payload);
-      await queryClient.invalidateQueries({ queryKey: ["visits", clinicId, patient.id] });
+      await invalidatePatientData(patient.id);
       toast.success(`Recap saved to ${displayName?.split(" ")[0] ?? "patient"}'s file`, { description: updated.notes ?? undefined });
+      return visitId;
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't save that recap.");
+      return undefined;
     }
   };
 
@@ -236,7 +261,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
       });
       await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
       await api.post(`/api/v1/visits/${visitId}/attachments`, { path, type: "photo" });
-      await queryClient.invalidateQueries({ queryKey: ["visits", clinicId, patient.id] });
+      await invalidatePatientData(patient.id);
       toast.success("Prescription attached", { description: "Saved to the visit and ready to share with the patient." });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't attach that file — try again.");
@@ -250,11 +275,49 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   // and paused are both "a session is open" — only End actually finalizes
   // and submits the recap. Next/prev (below) always End first if a session
   // is still open, so it can never keep listening into the wrong patient.
+  // Best-effort, separate from the Scribe connection itself — if the second
+  // getUserMedia call fails (or MediaRecorder isn't supported), ambient
+  // capture still works exactly as before, just without a saved recording.
+  const startAudioRecording = () => {
+    audioChunksRef.current = [];
+    navigator.mediaDevices
+      ?.getUserMedia({ audio: true })
+      .then((stream) => {
+        audioStreamRef.current = stream;
+        const recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
+        recorder.start();
+        audioRecorderRef.current = recorder;
+      })
+      .catch(() => {
+        // Silent — the transcript/note still saves fine without a recording.
+      });
+  };
+
+  const stopAudioRecording = (): Promise<{ blob: Blob; filename: string } | null> =>
+    new Promise((resolve) => {
+      const recorder = audioRecorderRef.current;
+      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current = null;
+      audioRecorderRef.current = null;
+      if (!recorder || recorder.state === "inactive") {
+        resolve(audioChunksRef.current.length ? { blob: new Blob(audioChunksRef.current, { type: recorder?.mimeType || "audio/webm" }), filename: "recording.webm" } : null);
+        return;
+      }
+      recorder.onstop = () => {
+        if (!audioChunksRef.current.length) { resolve(null); return; }
+        const mime = recorder.mimeType || "audio/webm";
+        resolve({ blob: new Blob(audioChunksRef.current, { type: mime }), filename: mime.includes("mp4") ? "recording.mp4" : "recording.webm" });
+      };
+      recorder.stop();
+    });
+
   const startCapture = async () => {
     try {
       const { token } = await api.get<{ token: string }>("/api/v1/visits/scribe-token");
       await scribe.connect({ token, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       setCaptureState("capturing");
+      startAudioRecording();
       toast.success("Listening", { description: "With patient consent. Pause or end anytime." });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't start listening — check your microphone permissions.");
@@ -263,6 +326,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
 
   const pauseCapture = () => {
     scribe.disconnect();
+    if (audioRecorderRef.current?.state === "recording") audioRecorderRef.current.pause();
     setCaptureState("paused");
     toast.message("Paused", { description: "Nothing's being saved yet — resume or end whenever you're ready." });
   };
@@ -272,9 +336,28 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
       const { token } = await api.get<{ token: string }>("/api/v1/visits/scribe-token");
       await scribe.connect({ token, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       setCaptureState("capturing");
+      if (audioRecorderRef.current?.state === "paused") audioRecorderRef.current.resume();
+      else if (!audioRecorderRef.current) startAudioRecording();
       toast.success("Listening again");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't resume — check your microphone permissions.");
+    }
+  };
+
+  // Uploads the session's recording onto the visit that was just created/
+  // updated by submitRecap — reuses the same upload-url + attachments flow
+  // as the prescription-photo attach, just tagged "audio". Best-effort: a
+  // failure here never undoes the recap that already saved.
+  const uploadCaptureRecording = async (visitId: string, clip: { blob: Blob; filename: string }) => {
+    try {
+      const { path, uploadUrl } = await api.post<{ path: string; uploadUrl: string }>(`/api/v1/visits/${visitId}/upload-url`, {
+        fileName: clip.filename, contentType: clip.blob.type,
+      });
+      await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": clip.blob.type }, body: clip.blob });
+      await api.post(`/api/v1/visits/${visitId}/attachments`, { path, type: "audio" });
+      if (patient) await invalidatePatientData(patient.id);
+    } catch {
+      // Best-effort — the transcript-based note already saved either way.
     }
   };
 
@@ -287,9 +370,11 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     transcriptRef.current = "";
     segmentsSinceSuggestRef.current = 0;
     setSuggestion(null);
+    const clip = await stopAudioRecording();
     if (finalTranscript.length >= MIN_TRANSCRIPT_CHARS) {
       toast.message("Processing capture…");
-      await submitRecap({ text: finalTranscript });
+      const visitId = await submitRecap({ text: finalTranscript });
+      if (visitId && clip) await uploadCaptureRecording(visitId, clip);
       toast.success("Visit context ready", { description: "The clinical note is up to date." });
     }
     setCaptureSettling(false);

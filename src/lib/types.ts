@@ -8,9 +8,16 @@ export interface Doctor {
 export interface Staff { id: string; name: string; role: Role; email: string; doctorId?: string; onlineNow: boolean; }
 
 export type VisitMode = "clinic" | "video" | "audio" | "text";
+export type VisitAttachmentType = "photo" | "digital" | "audio";
+export interface VisitAttachment { path: string; type: VisitAttachmentType; uploadedAt: string }
 export interface Visit {
   id: string; date: string; doctorId: string; mode: VisitMode;
-  symptoms: string; note: string; rxAttached?: boolean; rxDigital?: boolean; followUpOn?: string;
+  symptoms: string; note: string; rxAttached?: boolean; rxDigital?: boolean; recordingAttached?: boolean; followUpOn?: string;
+  // Full timestamp the Visit row was created — visitDate (`date` above) is
+  // day-granularity only, so this is what lets the UI show an actual time
+  // and correctly order same-day visits.
+  recordedAt?: string;
+  attachments?: VisitAttachment[];
 }
 export type ReviewState = "given" | "link_sent" | "none";
 export interface Patient {

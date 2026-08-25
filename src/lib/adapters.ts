@@ -223,11 +223,12 @@ export function fromApiPossibleNoShow(a: ApiPossibleNoShow): PossibleNoShow {
 
 // ─── Visit ────────────────────────────────────────────────────────────────────
 
-export interface ApiRxAttachment { path: string; type: "photo" | "digital"; uploadedAt: string }
+export interface ApiRxAttachment { path: string; type: "photo" | "digital" | "audio"; uploadedAt: string }
 
 export interface ApiVisit {
   id: string;
   visitDate: string;
+  createdAt?: string | null;
   doctorId?: string | null;
   mode?: string | null;
   symptoms?: string | null;
@@ -241,13 +242,16 @@ export function fromApiVisit(v: ApiVisit): Visit {
   return {
     id: v.id,
     date: v.visitDate,
+    recordedAt: v.createdAt ?? undefined,
     doctorId: v.doctorId ?? "",
     mode: (v.mode as VisitMode) ?? "clinic",
     symptoms: v.symptoms ?? "",
     note: v.notes ?? "",
-    rxAttached: attachments.length > 0,
+    rxAttached: attachments.some((a) => a.type === "photo" || a.type === "digital"),
     rxDigital: attachments.some((a) => a.type === "digital"),
+    recordingAttached: attachments.some((a) => a.type === "audio"),
     followUpOn: v.followUpDate ?? undefined,
+    attachments,
   };
 }
 
