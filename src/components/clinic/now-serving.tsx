@@ -77,15 +77,6 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   // committed segment.
   const transcriptRef = useRef("");
   const segmentsSinceSuggestRef = useRef(0);
-  // Scribe streams mic audio straight to ElevenLabs — our server never sees
-  // the raw bytes, so nothing's available to play back later unless we
-  // separately record it ourselves. A second independent getUserMedia
-  // stream (browsers allow more than one consumer of the same mic) feeds a
-  // plain MediaRecorder alongside Scribe's own connection, paused/resumed
-  // in lockstep with the capture session.
-  const audioStreamRef = useRef<MediaStream | null>(null);
-  const audioRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
 
   const fetchSuggestion = async () => {
     const transcript = transcriptRef.current.trim();
@@ -201,10 +192,8 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
       const { visit: updated } = await api.post<{ visit: { notes: string | null } }>(`/api/v1/visits/${visitId}/recap`, { text });
       await invalidatePatientData(patient.id);
       toast.success(`Recap saved to ${displayName?.split(" ")[0] ?? "patient"}'s file`, { description: updated.notes ?? undefined });
-      return visitId;
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't save that recap.");
-      return undefined;
     }
   };
 
@@ -261,49 +250,20 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   // and paused are both "a session is open" — only End actually finalizes
   // and submits the recap. Next/prev (below) always End first if a session
   // is still open, so it can never keep listening into the wrong patient.
-  // Best-effort, separate from the Scribe connection itself — if the second
-  // getUserMedia call fails (or MediaRecorder isn't supported), ambient
-  // capture still works exactly as before, just without a saved recording.
-  const startAudioRecording = () => {
-    audioChunksRef.current = [];
-    navigator.mediaDevices
-      ?.getUserMedia({ audio: true })
-      .then((stream) => {
-        audioStreamRef.current = stream;
-        const recorder = new MediaRecorder(stream);
-        recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
-        recorder.start();
-        audioRecorderRef.current = recorder;
-      })
-      .catch(() => {
-        // Silent — the transcript/note still saves fine without a recording.
-      });
-  };
-
-  const stopAudioRecording = (): Promise<{ blob: Blob; filename: string } | null> =>
-    new Promise((resolve) => {
-      const recorder = audioRecorderRef.current;
-      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
-      audioStreamRef.current = null;
-      audioRecorderRef.current = null;
-      if (!recorder || recorder.state === "inactive") {
-        resolve(audioChunksRef.current.length ? { blob: new Blob(audioChunksRef.current, { type: recorder?.mimeType || "audio/webm" }), filename: "recording.webm" } : null);
-        return;
-      }
-      recorder.onstop = () => {
-        if (!audioChunksRef.current.length) { resolve(null); return; }
-        const mime = recorder.mimeType || "audio/webm";
-        resolve({ blob: new Blob(audioChunksRef.current, { type: mime }), filename: mime.includes("mp4") ? "recording.mp4" : "recording.webm" });
-      };
-      recorder.stop();
-    });
-
+  //
+  // A parallel recording (a second independent getUserMedia stream feeding
+  // a MediaRecorder, so the session could be played back later) was tried
+  // here and reverted — on several mobile browsers, a second concurrent
+  // microphone request destabilizes the one Scribe itself needs, breaking
+  // capture entirely ("couldn't listen, check your microphone permissions"
+  // on a device where it worked before). Losing playback is a much smaller
+  // problem than losing live transcription, so this only opens Scribe's
+  // own single stream now.
   const startCapture = async () => {
     try {
       const { token } = await api.get<{ token: string }>("/api/v1/visits/scribe-token");
       await scribe.connect({ token, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       setCaptureState("capturing");
-      startAudioRecording();
       toast.success("Listening", { description: "With patient consent. Pause or end anytime." });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't start listening — check your microphone permissions.");
@@ -312,7 +272,6 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
 
   const pauseCapture = () => {
     scribe.disconnect();
-    if (audioRecorderRef.current?.state === "recording") audioRecorderRef.current.pause();
     setCaptureState("paused");
     toast.message("Paused", { description: "Nothing's being saved yet — resume or end whenever you're ready." });
   };
@@ -322,8 +281,6 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
       const { token } = await api.get<{ token: string }>("/api/v1/visits/scribe-token");
       await scribe.connect({ token, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       setCaptureState("capturing");
-      if (audioRecorderRef.current?.state === "paused") audioRecorderRef.current.resume();
-      else if (!audioRecorderRef.current) startAudioRecording();
       toast.success("Listening again");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't resume — check your microphone permissions.");
@@ -341,23 +298,6 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     else void resumeCapture();
   };
 
-  // Uploads the session's recording onto the visit that was just created/
-  // updated by submitRecap — reuses the same upload-url + attachments flow
-  // as the prescription-photo attach, just tagged "audio". Best-effort: a
-  // failure here never undoes the recap that already saved.
-  const uploadCaptureRecording = async (visitId: string, clip: { blob: Blob; filename: string }) => {
-    try {
-      const { path, uploadUrl } = await api.post<{ path: string; uploadUrl: string }>(`/api/v1/visits/${visitId}/upload-url`, {
-        fileName: clip.filename, contentType: clip.blob.type,
-      });
-      await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": clip.blob.type }, body: clip.blob });
-      await api.post(`/api/v1/visits/${visitId}/attachments`, { path, type: "audio" });
-      if (patient) await invalidatePatientData(patient.id);
-    } catch {
-      // Best-effort — the transcript-based note already saved either way.
-    }
-  };
-
   const endCapture = async () => {
     if (!canEndCapture(captureState)) return;
     if (captureState === "capturing") scribe.disconnect();
@@ -367,11 +307,9 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     transcriptRef.current = "";
     segmentsSinceSuggestRef.current = 0;
     setSuggestion(null);
-    const clip = await stopAudioRecording();
     if (isMeaningfulTranscript(finalTranscript, MIN_TRANSCRIPT_CHARS)) {
       toast.message("Processing capture…");
-      const visitId = await submitRecap(finalTranscript);
-      if (visitId && clip) await uploadCaptureRecording(visitId, clip);
+      await submitRecap(finalTranscript);
       toast.success("Visit context ready", { description: "The clinical note is up to date." });
     }
     setCaptureSettling(false);
