@@ -51,7 +51,13 @@ function micErrorMessage(err: unknown): string {
   if (name === "NotAllowedError") return "Microphone access was denied — check your browser's site permissions for ScheduRx.";
   if (name === "NotFoundError") return "No microphone was found on this device.";
   if (name === "NotReadableError") return "The microphone is already in use by another app or tab.";
-  return "Couldn't start listening — check your microphone permissions.";
+  // Anything that doesn't match a known getUserMedia DOMException name is
+  // something else entirely (a WebSocket/connect failure inside the SDK, a
+  // network error, ...) — surfacing the real name/message here instead of
+  // a generic "check permissions" is the only way to actually diagnose it
+  // instead of guessing again next time this fires.
+  const detail = name || (err instanceof Error ? err.message : typeof err === "string" ? err : null);
+  return detail ? `Couldn't start listening — ${detail}` : "Couldn't start listening (unknown error).";
 }
 
 export interface AmbientSession {
@@ -211,6 +217,7 @@ export function useAmbientSession(): AmbientSession {
       // display goes with it, so this is the one place a toast is the only
       // way the doctor ever sees why. Without it, a failed start just
       // looked like the panel silently flickering open and closed.
+      console.error("[ambient-session] start() failed:", err);
       const message = micErrorMessage(err);
       setError(message);
       toast.error(message);
