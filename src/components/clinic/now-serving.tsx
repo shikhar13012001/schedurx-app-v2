@@ -168,8 +168,15 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
           <div className="border-t border-white/10 px-5 py-4" data-noswipe>
             <div className="flex items-center gap-2">
               <Sparkles size={14} className="shrink-0 text-primary" />
-              <span className="mr-1 text-[12px] text-white/[0.58]">Follow-up</span>
-              <div className="no-scrollbar flex gap-1.5 overflow-x-auto">
+              <span className="mr-1 shrink-0 text-[12px] text-white/[0.58]">Follow-up</span>
+              {/* min-w-0 is load-bearing here, not decorative: this div is a
+                  flex item of the row above it, and a flex item's default
+                  min-width is "auto" — roughly its content's natural width.
+                  Without min-w-0, some browsers (Safari in particular) size
+                  this to fit all 5 chips on one line rather than actually
+                  respecting overflow-x-auto, pushing the whole card wider
+                  than the viewport regardless of anything else on it. */}
+              <div className="no-scrollbar flex min-w-0 gap-1.5 overflow-x-auto">
                 {[["1 wk", 7], ["2 wks", 14], ["1 mo", 30], ["3 mos", 90]].map(([label, days]) => (
                   <button key={label as string} onClick={() => setFollowUpDays(label as string, days as number)} className={cn("pressable shrink-0 rounded-pill px-3 py-1.5 text-[11.5px]", fu === label ? "bg-primary text-charcoal" : "bg-white/10 text-charcoal/[0.68]")}>{label}</button>
                 ))}
