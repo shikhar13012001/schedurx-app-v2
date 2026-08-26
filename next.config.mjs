@@ -77,7 +77,14 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://*.supabase.co wss://*.supabase.co https://*.schedurx.com",
+              // api.elevenlabs.io (both https and wss) is the browser's
+              // *direct* connection for ambient capture's real-time Scribe
+              // transcript — confirmed live: without it, the browser blocks
+              // the WebSocket itself before it ever reaches ElevenLabs,
+              // which surfaced as an opaque generic "WebSocket error" with
+              // no CSP-violation detail visible anywhere in the app's own
+              // error handling (only in the browser console).
+              "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://*.supabase.co wss://*.supabase.co https://*.schedurx.com https://api.elevenlabs.io wss://api.elevenlabs.io",
               "frame-src 'self' https://accounts.google.com https://*.firebaseapp.com",
               "frame-ancestors 'none'",
             ].join("; "),
