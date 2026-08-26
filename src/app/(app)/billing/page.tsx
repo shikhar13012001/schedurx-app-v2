@@ -114,7 +114,7 @@ function AddonManager() {
                 disabled={pendingAddonId === addon.id}
                 className={cn(
                   "pressable shrink-0 rounded-full px-4 py-2 text-[12px] font-medium disabled:opacity-50",
-                  active ? "bg-white text-ink shadow-card" : "bg-charcoal text-white",
+                  active ? "bg-white text-charcoal shadow-card" : "bg-charcoal text-white",
                 )}
               >
                 {pendingAddonId === addon.id ? "…" : active ? "Remove" : "Add"}

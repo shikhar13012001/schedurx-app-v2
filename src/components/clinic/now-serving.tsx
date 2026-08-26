@@ -131,8 +131,13 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
                   {current.walkIn && <p className="mt-2 inline-flex items-center gap-1.5 text-[11.5px] text-primary-ink"><UserRoundPlus size={12} /> Walk-in</p>}
                 </div>
               </PatientLink>
+              {/* bg-white here is a fixed white circle against this card's
+                  always-dark background, not a theme surface — its text
+                  has to be a fixed dark color too (text-charcoal, not the
+                  theme-aware text-ink), or it turns invisible white-on-
+                  white whenever the site's own theme is set to dark. */}
               {patient && (
-                <Link href={`/patients/${patient.id}`} className={cn("pressable flex h-12 w-12 shrink-0 items-center justify-center rounded-full", compact ? "bg-surface-2 text-ink" : "bg-white text-ink")} aria-label={`Open ${displayName}'s patient file`}>
+                <Link href={`/patients/${patient.id}`} className={cn("pressable flex h-12 w-12 shrink-0 items-center justify-center rounded-full", compact ? "bg-surface-2 text-ink" : "bg-white text-charcoal")} aria-label={`Open ${displayName}'s patient file`}>
                   <ArrowRight size={19} />
                 </Link>
               )}
@@ -148,8 +153,12 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
             {!compact && (
               <div className="mt-5 flex items-center justify-between gap-3">
                 <button onClick={() => void prev(doctorId)} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.12] text-white" aria-label="Previous patient"><ChevronLeft size={20} /></button>
+                {/* text-charcoal, not text-ink, on the Listen button below —
+                    its bg-white is fixed, not a theme surface, so its text
+                    needs a fixed dark color too or it goes invisible in
+                    dark mode (ink flips to near-white there). */}
                 {role === "doctor" ? (
-                  <button onClick={() => startCapture(captureTarget)} className="pressable flex h-14 items-center gap-2.5 rounded-pill bg-white px-5 text-[13.5px] font-medium text-ink" aria-label="Start listening">
+                  <button onClick={() => startCapture(captureTarget)} className="pressable flex h-14 items-center gap-2.5 rounded-pill bg-white px-5 text-[13.5px] font-medium text-charcoal" aria-label="Start listening">
                     <Mic size={17} /> Listen
                   </button>
                 ) : <span className="text-[12px] text-white/[0.56]">{active.length} in queue</span>}
