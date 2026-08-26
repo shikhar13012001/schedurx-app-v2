@@ -1,0 +1,2 @@
+[console_scripts]
+schedurx-browser-qa = schedurx_browser_qa.cli:main
