@@ -103,6 +103,24 @@ export function useAmbientSession(): AmbientSession {
     return () => { window.dispatchEvent(new CustomEvent("srx-capture-active", { detail: false })); };
   }, [phase]);
 
+  // A live session that errors out server-side (quota, rate limit, no
+  // speech detected for too long, ...) leaves the WebSocket dead, but
+  // without this the UI kept showing "Listening" indefinitely with only a
+  // small error line underneath it — a session that's actually over
+  // shouldn't still look like it's running. Moves straight to the review
+  // state (Save/Resume/Discard) with the reason surfaced, same as a
+  // manual Stop. Safe to call more than once for the same failure (the
+  // SDK's generic onError also fires alongside every specific callback
+  // below) — the phase check makes the second call a no-op.
+  const handleSessionError = useCallback((message: string) => {
+    setError(message);
+    if (segmentStartRef.current) accumulatedMsRef.current += Date.now() - segmentStartRef.current;
+    segmentStartRef.current = null;
+    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+    if (recorderRef.current?.state === "recording") recorderRef.current.pause();
+    setPhase((p) => (p === "listening" ? "review" : p));
+  }, []);
+
   const scribe = useScribe({
     modelId: "scribe_v2_realtime",
     // VAD (not the default manual commit) is required for live mic input —
@@ -116,7 +134,18 @@ export function useAmbientSession(): AmbientSession {
       transcriptRef.current = appendTranscriptSegment(transcriptRef.current, data.text);
       setTranscript(transcriptRef.current);
     },
-    onError: (err) => setError(err instanceof Error ? err.message : "The listening connection hit an error."),
+    // Specific callbacks give a real, actionable reason instead of the
+    // generic onError catch-all's bare "WebSocket error" — which is what a
+    // real Scribe server-side close (e.g. no speech detected) looks like
+    // through onError alone, with nothing to tell a doctor what actually
+    // happened or that it wasn't a bug.
+    onInsufficientAudioActivityError: () =>
+      handleSessionError("No speech was detected, so the session ended. Tap Listen again and speak soon after starting."),
+    onQuotaExceededError: () => handleSessionError("The transcription quota for this account has been used up."),
+    onSessionTimeLimitExceededError: () => handleSessionError("This session reached its maximum length and ended automatically."),
+    onRateLimitedError: () => handleSessionError("Too many requests right now — wait a moment and try again."),
+    onAuthError: () => handleSessionError("The session's authorization expired — try starting again."),
+    onError: (err) => handleSessionError(err instanceof Error ? err.message : "The listening connection hit an error."),
   });
 
   const startTimer = useCallback(() => {

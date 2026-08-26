@@ -99,7 +99,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
 
   return (
     <>
-      <section className={cn("relative overflow-hidden rounded-panel shadow-card", compact ? "bg-surface" : "atmosphere atmosphere-dark text-white")} data-noswipe>
+      <section className={cn("relative min-w-0 max-w-full overflow-hidden rounded-panel shadow-card", compact ? "bg-surface" : "atmosphere atmosphere-dark text-white")} data-noswipe>
         <div className={cn("flex items-center justify-between px-5 pt-5", compact ? "text-ink" : "text-white")}>
           <span className={cn("flex items-center gap-2 text-[12px]", compact ? "text-muted" : "text-white/[0.64]")}>
             <span className={cn("h-2 w-2 rounded-full", compact ? "bg-primary" : "bg-[#EC6B25]")} /> Now serving

@@ -131,7 +131,7 @@ function DoctorHome({ doctorId }: { doctorId: string }) {
   return (
     <div className="stagger space-y-8">
       <div className="grid gap-8 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,.85fr)] xl:items-stretch">
-        <section className="atmosphere atmosphere-orange-right relative -mx-1 overflow-hidden rounded-hero bg-stone px-5 pb-6 pt-6 text-charcoal shadow-float dark:text-white sm:px-7 sm:pb-8 sm:pt-7">
+        <section className="atmosphere atmosphere-orange-right relative -mx-1 min-w-0 max-w-full overflow-hidden rounded-hero bg-stone px-5 pb-6 pt-6 text-charcoal shadow-float dark:text-white sm:px-7 sm:pb-8 sm:pt-7">
         <div className="relative z-10">
           <p className="text-[13px] text-charcoal/[0.68] dark:text-white/[0.68]">{session.clinicName}</p>
           <h1 className="mt-4 max-w-[330px] text-balance font-display text-[clamp(3rem,12vw,4rem)] font-light leading-[0.94] tracking-[-0.055em]">
@@ -163,7 +163,14 @@ function DoctorHome({ doctorId }: { doctorId: string }) {
         </div>
         </section>
 
-        <div className="xl:[&>section]:h-full">
+        {/* min-w-0: this div is a grid item of the row above (single
+            implicit column below xl, since grid-cols only applies at
+            xl:+) — a grid item's default min-width is "auto", so without
+            this, any content inside NowServing that can't shrink below its
+            own natural width would widen this whole column (and drag the
+            hero section beside/above it wider too, since they share the
+            same track) instead of being contained by the viewport. */}
+        <div className="min-w-0 max-w-full xl:[&>section]:h-full">
           <NowServing doctorId={doctorId} />
         </div>
       </div>
