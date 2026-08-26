@@ -236,7 +236,22 @@ export function useAmbientSession(): AmbientSession {
     tokenRef.current = null; // single-use — never reuse a consumed token
     try {
       const resolvedToken = token ?? (await api.get<{ token: string }>("/api/v1/visits/scribe-token")).token;
-      await scribe.connect({ token: resolvedToken, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      await scribe.connect({
+        token: resolvedToken,
+        microphone: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          // Self-hosted so the SDK's AudioWorklet loads from this origin
+          // instead of a blob:/data: URL — confirmed live: without this, a
+          // strict script-src CSP (no blob:/data: allowed) blocks the
+          // worklet entirely and the mic never actually starts streaming,
+          // even once the WebSocket itself connects fine. Copied verbatim
+          // from @elevenlabs/client/worklets/scribeAudioProcessor.js into
+          // public/vendor/elevenlabs/.
+          workletPaths: { scribeAudioProcessor: "/vendor/elevenlabs/scribe-audio-processor.js" },
+        },
+      });
       attachRecorder();
       startTimer();
       setPhase("listening");
