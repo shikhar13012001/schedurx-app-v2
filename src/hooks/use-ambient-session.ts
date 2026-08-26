@@ -39,6 +39,12 @@ function getSharedMicStream(connection: unknown): MediaStream | null {
   return track ? new MediaStream([track]) : null;
 }
 
+// The token is minted server-side (15-minute single-use) well before the
+// mic button is ever tapped, so pull a fresh one every 10 minutes — a
+// safety margin under the expiry, in case a doctor leaves the page open
+// without capturing anything for a while.
+const TOKEN_REFRESH_MS = 10 * 60 * 1000;
+
 function micErrorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.message;
   const name = (err as { name?: string })?.name;
@@ -122,6 +128,31 @@ export function useAmbientSession(): AmbientSession {
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
   }, []);
 
+  // Fetched ahead of time, not when the mic button is tapped. On iOS
+  // Safari (and some other mobile browsers), calling getUserMedia() after
+  // an awaited network round-trip inside the same click handler makes the
+  // browser treat the user-gesture context as expired — the mic request
+  // then fails as if permission was denied, even though nothing was ever
+  // shown to deny. Scribe.connect() calls getUserMedia() internally, so the
+  // token it needs has to already be in hand *before* start() runs, so
+  // connect() begins in the same synchronous tick as the tap.
+  const tokenRef = useRef<string | null>(null);
+  const fetchToken = useCallback(async () => {
+    try {
+      const { token } = await api.get<{ token: string }>("/api/v1/visits/scribe-token");
+      tokenRef.current = token;
+    } catch {
+      // Best-effort — start() falls back to fetching on demand if this
+      // hasn't landed yet.
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchToken();
+    const interval = setInterval(() => void fetchToken(), TOKEN_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [fetchToken]);
+
   // A stable escape hatch for the unmount cleanup below — `scribe` itself
   // isn't referentially stable across renders, so an effect with `[]` deps
   // would otherwise close over a stale (and by unmount time, wrong)
@@ -161,17 +192,32 @@ export function useAmbientSession(): AmbientSession {
     accumulatedMsRef.current = 0;
     setHasRecording(false);
     scribe.clearTranscripts();
+    // Token is (almost always) already sitting in tokenRef from the
+    // background prefetch — using it here, with no await before connect(),
+    // is what keeps getUserMedia() inside the same user-gesture tick as the
+    // tap. Falling back to an on-demand fetch only covers the rare case of
+    // tapping before the very first prefetch has landed.
+    const token = tokenRef.current;
+    tokenRef.current = null; // single-use — never reuse a consumed token
     try {
-      const { token } = await api.get<{ token: string }>("/api/v1/visits/scribe-token");
-      await scribe.connect({ token, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      const resolvedToken = token ?? (await api.get<{ token: string }>("/api/v1/visits/scribe-token")).token;
+      await scribe.connect({ token: resolvedToken, microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       attachRecorder();
       startTimer();
       setPhase("listening");
+      void fetchToken(); // line up the next one now, before it's needed
     } catch (err) {
-      setError(micErrorMessage(err));
+      // A failed start unmounts the panel (phase idle) — the inline error
+      // display goes with it, so this is the one place a toast is the only
+      // way the doctor ever sees why. Without it, a failed start just
+      // looked like the panel silently flickering open and closed.
+      const message = micErrorMessage(err);
+      setError(message);
+      toast.error(message);
       setPhase("idle");
+      void fetchToken();
     }
-  }, [scribe, attachRecorder, startTimer]);
+  }, [scribe, attachRecorder, startTimer, fetchToken]);
 
   // Mute, not disconnect — the connection and the mic stream stay alive so
   // Resume is instant and never re-requests a token or the microphone.

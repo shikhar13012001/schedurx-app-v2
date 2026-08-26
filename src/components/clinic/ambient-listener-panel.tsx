@@ -46,7 +46,11 @@ export function AmbientListenerPanel({
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 60, opacity: 0 }}
           transition={{ type: "spring", stiffness: 340, damping: 34 }}
-          className="fixed inset-x-0 bottom-0 z-50 px-3 pb-[max(10px,env(safe-area-inset-bottom))]"
+          // Sits above BottomDock (fixed, ~70px tall, mobile-only) rather
+          // than on top of it — otherwise the panel, being higher z-index,
+          // completely hid Home/Calendar/Consults/Patients navigation and
+          // the rest of the shell for as long as a session was open.
+          className="fixed inset-x-0 bottom-[calc(70px+env(safe-area-inset-bottom)+14px)] z-40 px-3 md:bottom-4"
           data-noswipe
         >
           <div className="srx-dark-glass mx-auto flex max-h-[46vh] min-h-[26vh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[30px] rounded-b-[30px] px-5 pb-4 pt-4 text-white shadow-dock">

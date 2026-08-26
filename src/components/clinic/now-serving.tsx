@@ -1,8 +1,8 @@
 "use client";
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, Calendar, CalendarClock, Camera, ChevronLeft, ChevronRight, FileText, Mic, Sparkles, UserRoundPlus } from "lucide-react";
+import { ArrowRight, Calendar, CalendarClock, ChevronLeft, ChevronRight, Mic, Sparkles, UserRoundPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -10,9 +10,8 @@ import { useClinic, useSession } from "@/stores";
 import { useAppointments } from "@/hooks/use-appointments";
 import { useCurrentPatient } from "@/hooks/use-current-patient";
 import { usePatients } from "@/hooks/use-patients";
-import { api, ApiError } from "@/lib/api-client";
+import { ApiError } from "@/lib/api-client";
 import type { CaptureTarget } from "@/lib/capture-session";
-import { queryClient } from "@/lib/query-client";
 import { cn, fmtDate, fmtTime, toDateKey } from "@/lib/utils";
 
 // Walk-ins with no patient record have nowhere to link — renders as a plain,
@@ -39,11 +38,8 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   const { next, prev, addTask } = useClinic();
   const { data: appointments = [] } = useAppointments({ date: toDateKey(new Date()) });
   const role = useSession((s) => s.session?.role);
-  const clinicId = useSession((s) => s.session?.clinicId);
   const [fu, setFu] = useState<string | null>(null);
   const [customFollowUpOpen, setCustomFollowUpOpen] = useState(false);
-  const [encounterOpen, setEncounterOpen] = useState(false);
-  const rxFileRef = useRef<HTMLInputElement>(null);
 
   const { data: patients } = usePatients();
   const { active, current, patient, appt, displayName } = useCurrentPatient(doctorId);
@@ -77,27 +73,6 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
   const isNew = !patient?.visits.length;
   const captureTarget: CaptureTarget = { patientId: patient?.id, doctorId, appointmentId: appt?.id, symptoms: appt?.symptoms, displayName };
 
-  // The backend resolves the same (clinicId, patientId, today) Visit row
-  // every time — safe to call as often as needed without ever creating a
-  // duplicate.
-  const ensureVisitId = async (patientId: string): Promise<string> => {
-    const { visit } = await api.post<{ visit: { id: string } }>("/api/v1/visits", {
-      patientId, doctorId, appointmentId: appt?.id, symptoms: appt?.symptoms, visitDate: toDateKey(new Date()),
-    });
-    return visit.id;
-  };
-
-  // Every view that shows this patient's data reads from a different query
-  // key — without invalidating all three, whichever isn't the one currently
-  // on screen stays stale until a manual reload.
-  const invalidatePatientData = async (patientId: string) => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["visits", clinicId, patientId] }),
-      queryClient.invalidateQueries({ queryKey: ["patient", clinicId, patientId] }),
-      queryClient.invalidateQueries({ queryKey: ["patients", clinicId] }),
-    ]);
-  };
-
   const setFollowUp = async (label: string, dueDate: Date) => {
     if (!patient && !current?.displayName) return;
     setFu(label);
@@ -122,28 +97,6 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     void setFollowUp(fmtDate(new Date(y, m - 1, d).toISOString()), new Date(y, m - 1, d));
   };
 
-  const attachPrescriptionPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    if (!patient) {
-      toast.error("No patient file to attach this to — this looks like a walk-in with no record yet.");
-      return;
-    }
-    try {
-      const visitId = await ensureVisitId(patient.id);
-      const { path, uploadUrl } = await api.post<{ path: string; uploadUrl: string }>(`/api/v1/visits/${visitId}/upload-url`, {
-        fileName: file.name, contentType: file.type,
-      });
-      await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-      await api.post(`/api/v1/visits/${visitId}/attachments`, { path, type: "photo" });
-      await invalidatePatientData(patient.id);
-      toast.success("Prescription attached", { description: "Saved to the visit and ready to share with the patient." });
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't attach that file — try again.");
-    }
-  };
-
   return (
     <>
       <section className={cn("relative overflow-hidden rounded-panel shadow-card", compact ? "bg-surface" : "atmosphere atmosphere-dark text-white")} data-noswipe>
@@ -157,31 +110,32 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div key={current.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -18 }} transition={{ type: "spring", stiffness: 320, damping: 32 }} className="px-5 pb-5 pt-4">
             <div className="flex items-start gap-3.5">
-              {/* Tapping the person (not the arrow, which does something
-                  else — open encounter / go to profile depending on role)
-                  always goes straight to their patient file. */}
+              {/* Tapping anywhere here always goes straight to the patient
+                  file — a walk-in display name (or, once, a stray internal
+                  tool-call string that slipped into one) can be far longer
+                  than a real name, so every element in this row needs its
+                  own min-w-0: a flex item's default min-width is "auto"
+                  (roughly its content's natural width), which silently
+                  defeats truncate/overflow-hidden and was pushing the whole
+                  card wider than the viewport. */}
               <PatientLink patientId={patient?.id} className="flex min-w-0 flex-1 items-start gap-3.5">
                 <Avatar id={patient?.id ?? current.id} name={displayName ?? "Guest"} size={compact ? 48 : 58} ring={!compact} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className={cn("truncate font-display font-light leading-none tracking-[-0.05em]", compact ? "text-[25px] text-ink" : "text-[31px] text-white")}>{displayName ?? "Guest"}</h3>
-                    {appt?.critical && <Badge tone="danger">Critical</Badge>}
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h3 className={cn("min-w-0 truncate font-display font-light leading-none tracking-[-0.05em]", compact ? "text-[22px] sm:text-[25px] text-ink" : "text-[26px] sm:text-[31px] text-white")}>{displayName ?? "Guest"}</h3>
+                    {appt?.critical && <Badge tone="danger" className="shrink-0">Critical</Badge>}
                   </div>
                   {patient && (
-                    <p className={cn("mt-1 text-[12.5px]", compact ? "text-muted" : "text-white/[0.62]")}>{patient.age} yrs · {patient.gender === "M" ? "Male" : patient.gender === "F" ? "Female" : "—"}{patient.tags.length ? ` · ${patient.tags.join(" · ")}` : ""}</p>
+                    <p className={cn("mt-1 truncate text-[12.5px]", compact ? "text-muted" : "text-white/[0.62]")}>{patient.age} yrs · {patient.gender === "M" ? "Male" : patient.gender === "F" ? "Female" : "—"}{patient.tags.length ? ` · ${patient.tags.join(" · ")}` : ""}</p>
                   )}
                   {current.walkIn && <p className="mt-2 inline-flex items-center gap-1.5 text-[11.5px] text-primary-ink"><UserRoundPlus size={12} /> Walk-in</p>}
                 </div>
               </PatientLink>
-              {role === "doctor" ? (
-                <button onClick={() => setEncounterOpen(true)} className={cn("pressable flex h-12 w-12 shrink-0 items-center justify-center rounded-full", compact ? "bg-surface-2 text-ink" : "bg-white text-ink")} aria-label="Open encounter">
-                  <ArrowRight size={19} />
-                </button>
-              ) : patient ? (
-                <Link href={`/patients/${patient.id}`} className="pressable flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink" aria-label={`Open ${displayName}'s patient file`}>
+              {patient && (
+                <Link href={`/patients/${patient.id}`} className={cn("pressable flex h-12 w-12 shrink-0 items-center justify-center rounded-full", compact ? "bg-surface-2 text-ink" : "bg-white text-ink")} aria-label={`Open ${displayName}'s patient file`}>
                   <ArrowRight size={19} />
                 </Link>
-              ) : null}
+              )}
             </div>
 
             {appt?.symptoms && (
@@ -236,63 +190,6 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
           </div>
         )}
       </section>
-
-      <AnimatePresence>
-        {encounterOpen && role === "doctor" && (
-          <motion.div className="fixed inset-0 z-[80] overflow-y-auto bg-[#181818] text-white" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} data-noswipe>
-            <div className="relative mx-auto flex min-h-dvh max-w-[760px] flex-col overflow-hidden px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(18px,env(safe-area-inset-top))] md:px-8">
-              <div className="pointer-events-none absolute -right-24 top-[12%] h-[420px] w-[420px] rounded-full bg-primary/50 blur-[110px]" />
-              <div className="flex items-center justify-between">
-                <button onClick={() => setEncounterOpen(false)} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-white text-ink" aria-label="Close encounter"><ArrowLeft size={19} /></button>
-                <span className="srx-dark-glass rounded-pill px-4 py-2 text-[12px] text-white/70">● Live encounter</span>
-              </div>
-
-              <PatientLink patientId={patient?.id} className="relative mt-12 flex items-center gap-4">
-                <Avatar id={patient?.id ?? current.id} name={displayName ?? "Guest"} size={70} ring />
-                <div className="min-w-0">
-                  <p className="text-[12px] text-white/[0.48]">Current patient</p>
-                  <h2 className="mt-1 truncate font-display text-[48px] font-light leading-[.92] tracking-[-0.06em] sm:text-[58px]">{displayName ?? "Guest"}</h2>
-                  <p className="mt-2 text-[13px] text-white/[0.58]">{patient ? `${patient.age} yrs · ${patient.gender === "M" ? "Male" : "Female"}` : "Walk-in"}{appt ? ` · ${fmtTime(appt.startsAt)}` : ""}</p>
-                </div>
-              </PatientLink>
-
-              <div className="relative mt-10 flex-1 rounded-[40px] bg-[#B9B6B1] p-5 text-[#181818] md:p-7">
-                <p className="text-[12px] text-black/[0.48]">Clinical context</p>
-                <p className="mt-3 max-w-[560px] font-display text-[31px] font-light leading-[1.05] tracking-[-0.045em]">{appt?.symptoms ?? "Open consultation"}</p>
-                {lastVisit && <p className="mt-5 max-w-[580px] text-[14px] leading-relaxed text-black/[0.62]"><span className="font-medium text-black/80">Last visit · {fmtDate(lastVisit.date)}</span><br />{lastVisit.note}</p>}
-
-                <input ref={rxFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={attachPrescriptionPhoto} />
-
-                <div className="mt-10 grid gap-3 sm:grid-cols-2">
-                  <button
-                    onClick={() => { setEncounterOpen(false); startCapture(captureTarget); }}
-                    className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card"
-                  >
-                    <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-white"><Mic size={21} /></span>
-                    <span><span className="block text-[13px] text-black/[0.48]">Ambient capture</span><span className="mt-1 block text-[18px] font-medium">Start listening</span></span>
-                  </button>
-                  <button onClick={() => rxFileRef.current?.click()} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card">
-                    <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-white"><Camera size={21} /></span>
-                    <span><span className="block text-[13px] text-black/[0.48]">Prescription</span><span className="mt-1 block text-[18px] font-medium">Attach a photo</span></span>
-                  </button>
-                  {patient && (
-                    <Link href={`/patients/${patient.id}`} className="pressable flex min-h-[118px] items-center gap-4 rounded-[30px] bg-white/70 p-4 text-left shadow-card">
-                      <span className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-white"><FileText size={21} /></span>
-                      <span><span className="block text-[13px] text-black/[0.48]">Patient record</span><span className="mt-1 block text-[18px] font-medium">Open history</span></span>
-                    </Link>
-                  )}
-                </div>
-              </div>
-
-              <div className="relative mt-4 flex items-center justify-between rounded-[30px] bg-white/[0.08] px-3 py-3 backdrop-blur-xl">
-                <button onClick={() => void prev(doctorId)} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-white/10" aria-label="Previous patient"><ChevronLeft size={20} /></button>
-                <span className="text-center text-[12px] text-white/[0.52]">Ready when you are</span>
-                <button onClick={() => void next(doctorId)} className="pressable flex h-12 w-12 items-center justify-center rounded-full bg-primary" aria-label="Next patient"><ChevronRight size={20} /></button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </>
   );
 }

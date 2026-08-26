@@ -4,6 +4,7 @@ import { z } from "zod";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { isValidPhoneNumber } from "react-phone-number-input";
 import { IndianRupee, Video, Phone as PhoneIcon, Building2, MessageSquareText } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -19,9 +20,26 @@ import { ApiError } from "@/lib/api-client";
 import { cn, dateAt, toDateKey } from "@/lib/utils";
 import type { Doctor, VisitMode } from "@/lib/types";
 
+// Deny-list rather than an allow-list of letters — an allow-list needs the
+// regex `u` flag's \p{L} Unicode property escape (any script, since Indian
+// names aren't only ASCII), which this project's tsconfig target doesn't
+// support. Plain string matching instead of a hand-escaped character-class
+// regex, so there's no risk of a stray unescaped bracket silently changing
+// what the class matches. Rejects digits and obvious symbol characters,
+// while still letting through O'Brien, Anne-Marie, Dr. Rao, and names in
+// any script.
+const NAME_DISALLOWED_CHARS = "0123456789!@#$%^&*()_+=[]{}<>/\\|~`\";:";
+function hasDisallowedNameChar(value: string): boolean {
+  return value.split("").some((ch) => NAME_DISALLOWED_CHARS.includes(ch));
+}
+
 const schema = z.object({
-  phone: z.string().min(8, "Enter the patient's phone"),
-  name: z.string().min(2, "Patient name is required"),
+  phone: z.string().min(8, "Enter the patient's phone").refine((v) => isValidPhoneNumber(v), "Enter a valid phone number"),
+  name: z
+    .string()
+    .trim()
+    .min(2, "Patient name is required")
+    .refine((v) => !hasDisallowedNameChar(v), "Name can only contain letters, spaces, and - . '"),
   doctorId: z.string().min(1),
   mode: z.enum(["clinic", "video", "audio", "text"]),
   day: z.string().min(1),
