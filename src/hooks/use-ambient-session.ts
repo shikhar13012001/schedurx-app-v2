@@ -204,17 +204,35 @@ export function useAmbientSession(): AmbientSession {
     []
   );
 
-  const attachRecorder = useCallback(() => {
+  // Best-effort, and silently so from the doctor's side — a missed
+  // recording shouldn't interrupt a live consult over a bonus feature. But
+  // silent doesn't mean untraceable: every path that gives up logs why, so
+  // "the recording never attached" is diagnosable from the console instead
+  // of a bare absence with no explanation (which is exactly what happened
+  // here before this — no error, no attachment, no clue).
+  const attachRecorder = useCallback(async () => {
     try {
-      const stream = getSharedMicStream(scribe.getConnection());
-      if (!stream) return;
+      // _mediaStreamTrack is set as part of the same connect() call this
+      // runs right after, but it's an internal field, not documented public
+      // state — hedge against it landing a tick late with a few short
+      // retries rather than trusting it's already there on the first read.
+      let stream: MediaStream | null = null;
+      for (let attempt = 0; attempt < 5 && !stream; attempt++) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 100));
+        stream = getSharedMicStream(scribe.getConnection());
+      }
+      if (!stream) {
+        console.warn("[ambient-session] no shared mic stream available — recording will be skipped for this session (transcription is unaffected).");
+        return;
+      }
       const recorder = new MediaRecorder(stream);
       recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
+      recorder.onerror = (event) => console.error("[ambient-session] MediaRecorder error:", event);
       recorder.start();
       recorderRef.current = recorder;
       setHasRecording(true);
-    } catch {
-      // Best-effort — recording is a bonus, transcription still works without it.
+    } catch (err) {
+      console.error("[ambient-session] attachRecorder failed:", err);
     }
   }, [scribe]);
 
@@ -252,7 +270,7 @@ export function useAmbientSession(): AmbientSession {
           workletPaths: { scribeAudioProcessor: "/vendor/elevenlabs/scribe-audio-processor.js" },
         },
       });
-      attachRecorder();
+      void attachRecorder(); // best-effort, backgrounded — never blocks the UI moving to "listening"
       startTimer();
       setPhase("listening");
       void fetchToken(); // line up the next one now, before it's needed
@@ -353,11 +371,17 @@ export function useAmbientSession(): AmbientSession {
             const { path, uploadUrl } = await api.post<{ path: string; uploadUrl: string }>(`/api/v1/visits/${visit.id}/upload-url`, {
               fileName: "recording.webm", contentType: clip.type,
             });
-            await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": clip.type }, body: clip });
+            const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": clip.type }, body: clip });
+            if (!putRes.ok) throw new Error(`Storage upload failed: ${putRes.status} ${putRes.statusText}`);
             await api.post(`/api/v1/visits/${visit.id}/attachments`, { path, type: "audio" });
-          } catch {
-            // Best-effort — the note already saved either way.
+          } catch (err) {
+            // Best-effort — the note already saved either way, but this
+            // failing silently is exactly why "no recording playback" was
+            // undiagnosable before.
+            console.error("[ambient-session] recording upload failed:", err);
           }
+        } else {
+          console.warn("[ambient-session] no recording clip to upload for this visit (attachRecorder likely never attached — see earlier warning).");
         }
         scribe.disconnect();
         recorderRef.current = null;

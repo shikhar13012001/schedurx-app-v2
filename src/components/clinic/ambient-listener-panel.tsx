@@ -21,14 +21,21 @@ export function AmbientListenerPanel({
   session,
   recommendation,
   patientName,
+  checkingOut,
   onClose,
   onSaveToNotes,
+  onCheckout,
 }: {
   session: AmbientSession;
   recommendation: LiveRecommendation;
   patientName?: string;
+  // Both Save to Notes and Checkout end up in session.phase === "saving" —
+  // this is which one the doctor actually tapped, so the *other* button
+  // doesn't also read "Saving…"/"Checking out…" while it's happening.
+  checkingOut: boolean;
   onClose: () => void;
   onSaveToNotes: () => void;
+  onCheckout: () => void;
 }) {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const live = session.phase === "listening";
@@ -68,9 +75,11 @@ export function AmbientListenerPanel({
                     <span className="text-[13px] text-white/80">Listening{patientName ? ` · ${patientName}` : ""}</span>
                   </>
                 ) : session.phase === "saving" ? (
-                  <span className="text-[13px] text-white/80">Saving…</span>
+                  <span className="text-[13px] text-white/80">{checkingOut ? "Checking out…" : "Saving…"}</span>
                 ) : session.phase === "saved" ? (
-                  <span className="text-[13px] text-primary-ink">Saved to {patientName ?? "patient"}&apos;s file</span>
+                  <span className="text-[13px] text-primary-ink">
+                    {checkingOut ? `Checked out ${patientName ?? "patient"}` : `Saved to ${patientName ?? "patient"}'s file`}
+                  </span>
                 ) : (
                   <span className="text-[13px] text-white/80">Recording complete</span>
                 )}
@@ -122,20 +131,30 @@ export function AmbientListenerPanel({
 
             {/* Review / save actions */}
             {reviewing && (
-              <div className="mt-3 shrink-0 space-y-2.5">
+              <div className="mt-3 shrink-0 space-y-2">
                 <div className="flex items-center gap-3 text-[11.5px] text-white/50">
                   <span>Transcript saved</span>
                   {session.hasRecording && <span>· Audio {session.phase === "saving" ? "saving…" : "ready"}</span>}
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <button onClick={session.discard} disabled={session.phase === "saving"} className="pressable h-11 rounded-pill bg-white/10 text-[12.5px] font-medium text-white/80 disabled:opacity-50">
-                    Discard
+                {/* Checkout does everything Save to Notes does, then also
+                    marks the appointment complete and fires the patient's
+                    post-visit message — the same thing tapping Next on the
+                    queue does, just reachable right here instead of having
+                    to close this panel and go find that button. */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={onSaveToNotes} disabled={session.phase === "saving"} className="pressable h-11 rounded-pill bg-white/10 text-[12.5px] font-medium text-white/80 disabled:opacity-50">
+                    {session.phase === "saving" && !checkingOut ? "Saving…" : "Save to Notes"}
                   </button>
-                  <button onClick={() => void session.resume()} disabled={session.phase === "saving"} className="pressable h-11 rounded-pill bg-white/10 text-[12.5px] font-medium text-white/80 disabled:opacity-50">
+                  <button onClick={onCheckout} disabled={session.phase === "saving"} className="pressable h-11 rounded-pill bg-primary text-[12.5px] font-medium text-charcoal disabled:opacity-60">
+                    {session.phase === "saving" && checkingOut ? "Checking out…" : "Checkout"}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => void session.resume()} disabled={session.phase === "saving"} className="pressable h-10 rounded-pill bg-white/10 text-[12px] font-medium text-white/60 disabled:opacity-50">
                     Resume
                   </button>
-                  <button onClick={onSaveToNotes} disabled={session.phase === "saving"} className="pressable h-11 rounded-pill bg-primary text-[12.5px] font-medium text-charcoal disabled:opacity-60">
-                    {session.phase === "saving" ? "Saving…" : "Save to Notes"}
+                  <button onClick={session.discard} disabled={session.phase === "saving"} className="pressable h-10 rounded-pill bg-white/10 text-[12px] font-medium text-white/60 disabled:opacity-50">
+                    Discard
                   </button>
                 </div>
               </div>
