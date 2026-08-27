@@ -12,14 +12,14 @@ const styles = StyleSheet.create({
   footer: { position: "absolute", bottom: 30, left: 40, right: 40, fontSize: 9, color: "#7C8985", borderTopWidth: 1, borderTopColor: "#DBE2DE", paddingTop: 8 },
 });
 
-export function PrescriptionDoc({ clinicName, doctorName, patientName, patientAge, patientGender, date, rxText }: {
-  clinicName: string; doctorName: string; patientName: string; patientAge?: number; patientGender?: string; date: string; rxText: string;
+export function PrescriptionDoc({ clinicName, doctorName, regNo, patientName, patientAge, patientGender, date, rxText }: {
+  clinicName: string; doctorName: string; regNo?: string; patientName: string; patientAge?: number; patientGender?: string; date: string; rxText: string;
 }) {
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <Text style={styles.clinicName}>{clinicName}</Text>
-        <Text style={styles.doctorName}>{doctorName}</Text>
+        <Text style={styles.doctorName}>{doctorName}{regNo ? ` · Reg. No. ${regNo}` : ""}</Text>
         <View style={styles.divider} />
         <View style={styles.row}><Text style={styles.label}>Patient</Text><Text>{patientName}{patientAge ? `, ${patientAge}` : ""}{patientGender ? ` (${patientGender})` : ""}</Text></View>
         <View style={styles.row}><Text style={styles.label}>Date</Text><Text>{date}</Text></View>

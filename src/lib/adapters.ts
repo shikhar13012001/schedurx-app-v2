@@ -29,6 +29,7 @@ export interface ApiDoctor {
   workingHoursEnd?: string | null;
   slotDurationOverrideMins?: number | null;
   isActive?: boolean;
+  registrations?: { number?: string; council?: string; year?: string }[] | null;
 }
 
 export function fromApiDoctor(d: ApiDoctor): Doctor {
@@ -38,9 +39,12 @@ export function fromApiDoctor(d: ApiDoctor): Doctor {
     specialty: d.specialty ?? "General Physician",
     fee: d.feeInr ?? 0,
     slotMinutes: d.slotDurationOverrideMins ?? 30,
-    // regNo has no backend column yet (Telemedicine Practice Guidelines 2020
-    // requires it on prescriptions) — surfaces empty until that's added.
-    regNo: "",
+    // Telemedicine Practice Guidelines 2020 requires this on prescriptions.
+    // Doctor.registrations is an array (a doctor can hold more than one
+    // council registration) collected during onboarding — the first entry
+    // is used as the primary one; there's no "primary" flag to pick a
+    // different one deliberately yet.
+    regNo: d.registrations?.[0]?.number ?? "",
     availableNow: d.isActive ?? true,
     todayHours: d.workingHoursStart && d.workingHoursEnd ? `${d.workingHoursStart}–${d.workingHoursEnd}` : "—",
     bio: d.bio ?? undefined,

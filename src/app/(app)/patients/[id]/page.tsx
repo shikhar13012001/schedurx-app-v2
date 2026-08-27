@@ -144,6 +144,7 @@ export default function PatientProfilePage() {
       const blob = await renderPrescriptionPdf({
         clinicName: clinicName ?? "ScheduRx Clinic",
         doctorName: doctor?.name ?? "Attending doctor",
+        regNo: doctor?.regNo || undefined,
         patientName: patient.name,
         patientAge: patient.age,
         patientGender: patient.gender === "M" ? "Male" : patient.gender === "F" ? "Female" : undefined,
