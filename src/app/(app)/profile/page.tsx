@@ -41,6 +41,8 @@ export default function ProfilePage() {
   const [canInstall, setCanInstall] = React.useState(false);
   const [fee, setFee] = React.useState<string>("");
   const [slotMinutes, setSlotMinutes] = React.useState<string>("");
+  const [workingHoursStart, setWorkingHoursStart] = React.useState<string>("");
+  const [workingHoursEnd, setWorkingHoursEnd] = React.useState<string>("");
   const [googleReviewUrl, setGoogleReviewUrl] = React.useState<string>("");
   const [savingReviewUrl, setSavingReviewUrl] = React.useState(false);
   const [tokenAmount, setTokenAmount] = React.useState<string>("");
@@ -111,22 +113,35 @@ export default function ProfilePage() {
   // further keystrokes then appending onto the reset value instead of
   // replacing it (how a slot length ends up looking like "300").
   React.useEffect(() => {
-    if (doctor) { setFee(String(doctor.fee)); setSlotMinutes(String(doctor.slotMinutes)); }
+    if (doctor) {
+      setFee(String(doctor.fee));
+      setSlotMinutes(String(doctor.slotMinutes));
+      setWorkingHoursStart(doctor.workingHoursStart);
+      setWorkingHoursEnd(doctor.workingHoursEnd);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doctor?.id]);
 
   const feeValue = Number(fee);
   const slotValue = Number(slotMinutes);
+  const hoursValid = /^\d{2}:\d{2}$/.test(workingHoursStart) && /^\d{2}:\d{2}$/.test(workingHoursEnd) && workingHoursStart < workingHoursEnd;
   const practiceDirty = !!doctor && (
     (Number.isFinite(feeValue) && feeValue !== doctor.fee) ||
-    (Number.isFinite(slotValue) && slotValue > 0 && slotValue !== doctor.slotMinutes)
+    (Number.isFinite(slotValue) && slotValue > 0 && slotValue !== doctor.slotMinutes) ||
+    (hoursValid && (workingHoursStart !== doctor.workingHoursStart || workingHoursEnd !== doctor.workingHoursEnd))
   );
 
   function savePractice() {
     if (!doctor || !practiceDirty) return;
-    const patch: { feeInr?: number; slotDurationOverrideMins?: number } = {};
+    if ((workingHoursStart !== doctor.workingHoursStart || workingHoursEnd !== doctor.workingHoursEnd) && !hoursValid) {
+      toast.error("Start time must be before end time.");
+      return;
+    }
+    const patch: { feeInr?: number; slotDurationOverrideMins?: number; workingHoursStart?: string; workingHoursEnd?: string } = {};
     if (Number.isFinite(feeValue) && feeValue !== doctor.fee) patch.feeInr = feeValue;
     if (Number.isFinite(slotValue) && slotValue > 0 && slotValue !== doctor.slotMinutes) patch.slotDurationOverrideMins = slotValue;
+    if (hoursValid && workingHoursStart !== doctor.workingHoursStart) patch.workingHoursStart = workingHoursStart;
+    if (hoursValid && workingHoursEnd !== doctor.workingHoursEnd) patch.workingHoursEnd = workingHoursEnd;
     updateDoctor.mutate({ doctorId: doctor.id, patch }, {
       onSuccess: () => toast.success("Practice details saved"),
       onError: (err) => toast.error(err instanceof ApiError ? err.message : "Couldn't save changes"),
@@ -251,6 +266,14 @@ export default function ProfilePage() {
               <Field label="Fee (₹)"><Input value={fee} onChange={(e) => setFee(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></Field>
               <Field label="Slot (min)" hint="Sets the time increments patients can be booked at"><Input value={slotMinutes} onChange={(e) => setSlotMinutes(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></Field>
               <Field label="Registration no."><Input defaultValue={doctor?.regNo ?? ""} /></Field>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Working hours start" hint="What time you're bookable from — the calendar and booking form both follow this">
+                <Input type="time" value={workingHoursStart} onChange={(e) => setWorkingHoursStart(e.target.value)} />
+              </Field>
+              <Field label="Working hours end">
+                <Input type="time" value={workingHoursEnd} onChange={(e) => setWorkingHoursEnd(e.target.value)} />
+              </Field>
             </div>
             <Button size="sm" className="mt-4 w-full sm:w-auto" disabled={!practiceDirty || updateDoctor.isPending} onClick={savePractice}>
               {updateDoctor.isPending ? "Saving…" : "Save changes"}

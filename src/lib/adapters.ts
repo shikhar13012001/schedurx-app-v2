@@ -47,6 +47,8 @@ export function fromApiDoctor(d: ApiDoctor): Doctor {
     regNo: d.registrations?.[0]?.number ?? "",
     availableNow: d.isActive ?? true,
     todayHours: d.workingHoursStart && d.workingHoursEnd ? `${d.workingHoursStart}–${d.workingHoursEnd}` : "—",
+    workingHoursStart: d.workingHoursStart ?? "09:00",
+    workingHoursEnd: d.workingHoursEnd ?? "18:00",
     bio: d.bio ?? undefined,
   };
 }
@@ -149,12 +151,23 @@ export function fromApiAppointment(a: ApiAppointment): Appointment {
     durationMin: a.durationMinutes ?? 30,
     status: STATUS_FROM_API[a.status] ?? "tentative",
     source: (a.source as ApptSource) ?? "reception",
-    // meetLink/critical still have no backend column — mode/pay do now (see
+    // critical still has no backend column — mode/pay do now (see
     // 20260823_appointment_mode_and_token.sql); this used to hard-default
     // both, which meant a Video+token booking was silently read back and
     // displayed as an in-clinic, unpaid one.
     pay: a.tokenRequested ? "token" : "unpaid",
     mode: (a.mode as VisitMode) ?? "clinic",
+    // Deterministic room URL, not a stored value — no meeting-provider
+    // integration exists yet (no OAuth, no calendar API), and building one
+    // is a real product decision (provider, identity, expiry — see the
+    // engineering audit), not something to invent here. This is a genuinely
+    // working video room in the meantime: meet.jit.si needs no signup and
+    // no API key, and the appointment id (a UUID) makes the room
+    // effectively unguessable, the same informal privacy model most simple
+    // telehealth MVPs start with. Audio mode intentionally has no link —
+    // that's a real phone call (see the "tel:" fallback this feeds), not a
+    // video room.
+    meetLink: a.mode === "video" ? `https://meet.jit.si/schedurx-${a.id}` : undefined,
     symptoms: a.symptoms ?? undefined,
     blockReason: a.status === "blocked" ? (a.notes ?? undefined) : undefined,
   };

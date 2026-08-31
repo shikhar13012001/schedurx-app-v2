@@ -4,6 +4,7 @@ export type ClinicType = "solo" | "polyclinic";
 export interface Doctor {
   id: string; name: string; specialty: string; fee: number; slotMinutes: number;
   regNo: string; availableNow: boolean; todayHours: string; bio?: string;
+  workingHoursStart: string; workingHoursEnd: string;
 }
 export interface Staff { id: string; name: string; role: Role; email: string; doctorId?: string; onlineNow: boolean; }
 

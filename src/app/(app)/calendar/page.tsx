@@ -26,6 +26,16 @@ function topOf(iso: string) {
   return ((date.getHours() - DAY_START) * 60 + date.getMinutes()) * PX_PER_MIN;
 }
 
+// "09:00" -> pixel offset within the timeline, clamped to the visible
+// DAY_START–DAY_END window (a doctor whose hours run outside that window
+// just shows as fully shaded at that edge, rather than doing math that
+// goes off-canvas).
+function topOfClock(hhmm: string) {
+  const [h, m] = hhmm.split(":").map(Number);
+  const clampedMin = Math.min(Math.max((h - DAY_START) * 60 + (m || 0), 0), (DAY_END - DAY_START) * 60);
+  return clampedMin * PX_PER_MIN;
+}
+
 function TimelineBlock({ appointment, dimmed, onSelect }: { appointment: Appointment; dimmed: boolean; onSelect: (a: Appointment) => void }) {
   const { data: patients } = usePatients();
   const patient = appointment.patientId ? patients?.find((item) => item.id === appointment.patientId) : undefined;
@@ -170,7 +180,13 @@ export default function CalendarPage() {
   }, [rawDayAppointments]);
   const nowTop = topOf(now.toISOString());
   const nowVisible = isToday && nowTop > 0 && nowTop < TIMELINE_HEIGHT;
-  const slotMinutes = doctors?.find((d) => d.id === doctorId)?.slotMinutes ?? 15;
+  const activeDoctorForHours = doctors?.find((d) => d.id === doctorId);
+  const slotMinutes = activeDoctorForHours?.slotMinutes ?? 15;
+  // Real working hours, for shading the parts of the timeline nobody
+  // actually works (checklist feedback: the fixed 8am–10pm grid didn't
+  // reflect a doctor's real hours, making it look bookable when it wasn't).
+  const workStartTop = activeDoctorForHours ? topOfClock(activeDoctorForHours.workingHoursStart) : 0;
+  const workEndTop = activeDoctorForHours ? topOfClock(activeDoctorForHours.workingHoursEnd) : TIMELINE_HEIGHT;
 
   const onCheckIn = async () => {
     if (!actionsFor) return;
@@ -283,6 +299,15 @@ export default function CalendarPage() {
             {Array.from({ length: DAY_END - DAY_START + 1 }, (_, index) => (
               <div key={index} className="absolute inset-x-0 border-t border-border/[0.45]" style={{ top: index * 60 * PX_PER_MIN }} />
             ))}
+            {/* Shade the hours outside this doctor's real working hours —
+                still shows the full 8am–10pm grid for context, but makes it
+                visually obvious which part is actually bookable. */}
+            {workStartTop > 0 && (
+              <div className="pointer-events-none absolute inset-x-0 top-0 bg-surface-soft/70" style={{ height: workStartTop }} />
+            )}
+            {workEndTop < TIMELINE_HEIGHT && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-surface-soft/70" style={{ height: TIMELINE_HEIGHT - workEndTop }} />
+            )}
             {dayAppointments.map((appointment) => (
               <TimelineBlock
                 key={appointment.id}
