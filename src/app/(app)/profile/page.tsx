@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Segmented } from "@/components/ui/segmented";
 import { Input, Field } from "@/components/ui/input";
+import { MissedCallDeviceSetup } from "@/components/device/missed-call-setup";
 import { cn } from "@/lib/utils";
 
 const THEMES: { id: ThemeId; name: string; hint: string; preview: string }[] = [
@@ -295,6 +296,9 @@ export default function ProfilePage() {
         <RowButton icon={<Bell size={16} />} label="Enable critical-case alerts" onClick={enableNotifs} />
         <RowButton icon={<FileText size={16} />} label="Privacy & terms" onClick={() => toast.info("DPDP-compliant. Patient data stays in India. Full policy ships with production.")} />
       </SettingGroup>
+
+      {/* Only renders inside the schedurx-apk-app Capacitor shell — a no-op on the ordinary web dashboard. */}
+      <MissedCallDeviceSetup />
 
       <p className="pb-2 text-center text-[10.5px] text-faint">ScheduRx · Preview build · Made for Indian clinics</p>
     </div>

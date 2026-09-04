@@ -3,12 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { signInWithPopup } from "firebase/auth";
 import { toast } from "sonner";
 import { Wordmark } from "@/components/shell/brand";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/stores";
-import { getFirebaseAuth, googleProvider } from "@/lib/firebase";
+import { signInWithGoogleAdaptive } from "@/lib/native-google-signin";
 import { api, ApiError } from "@/lib/api-client";
 
 const GoogleG = () => (
@@ -38,7 +37,7 @@ export default function LoginPage() {
   const enter = async () => {
     setBusy(true);
     try {
-      await signInWithPopup(getFirebaseAuth(), googleProvider);
+      await signInWithGoogleAdaptive();
       const [{ staff }, { clinic }] = await Promise.all([
         api.get<MeResponse>("/api/v1/me"),
         api.get<ClinicResponse>("/api/v1/clinic"),

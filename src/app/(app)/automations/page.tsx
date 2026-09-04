@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, Phone, AlertTriangle, RefreshCw, CheckCircle2 } from "lucide-react";
-import { useClinic, type CommWorkflow, type CommChannel, type CommTrigger } from "@/stores";
+import { useClinic, useSession, type CommWorkflow, type CommChannel, type CommTrigger } from "@/stores";
 import { useDoctors } from "@/hooks/use-team";
 import { usePhoneRoutes, useCreatePhoneRoute, useUpdatePhoneRoute, useDeletePhoneRoute } from "@/hooks/use-phone-routes";
 import { useMessageFailures, useRetryQueue, type MessageFailure, type RetryQueueItem } from "@/hooks/use-messaging";
+import { useCallerWhitelist, useAddCallerWhitelist, useRemoveCallerWhitelist } from "@/hooks/use-caller-whitelist";
+import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -182,6 +184,69 @@ function DeliveryStatusSection() {
   );
 }
 
+// Numbers that should still be reported as a missed call by the Android
+// companion app even though they resolve to a saved contact on the device —
+// a clinic-wide policy (any staff member's phone honors the same list), not
+// a personal preference. Owner AND receptionist can manage this one (unlike
+// every other section on this page): receptionists are typically the ones
+// actually fielding these calls day to day. See api-v1-caller-whitelist.js.
+function MissedCallWhitelistSection() {
+  const { data: whitelist } = useCallerWhitelist();
+  const addEntry = useAddCallerWhitelist();
+  const removeEntry = useRemoveCallerWhitelist();
+  const [phone, setPhone] = useState("");
+  const [label, setLabel] = useState("");
+
+  const add = async () => {
+    if (!phone.trim()) return;
+    try {
+      await addEntry.mutateAsync({ phone: phone.trim(), label: label.trim() || undefined });
+      setPhone("");
+      setLabel("");
+      toast.success("Added to whitelist");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't add that number.");
+    }
+  };
+
+  return (
+    <section className="rounded-panel bg-surface p-5 shadow-card">
+      <div className="mb-1 flex items-center gap-2">
+        <ShieldAlert size={16} className="text-primary" />
+        <h2 className="text-[16px] font-medium">Missed-call whitelist</h2>
+      </div>
+      <p className="mb-4 text-[13px] text-muted">
+        Numbers here are still reported as a missed call — and get the follow-up text — even if they&apos;re a saved contact on your phone.
+      </p>
+      <div className="space-y-2">
+        {(whitelist ?? []).length === 0 && <p className="py-2 text-[13px] text-faint">No numbers whitelisted yet.</p>}
+        {(whitelist ?? []).map((entry) => (
+          <div key={entry.id} className="flex items-center gap-3 rounded-[18px] bg-surface-soft px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13.5px] tabular-nums">{entry.phone}</p>
+              {entry.label && <p className="truncate text-[12px] text-muted">{entry.label}</p>}
+            </div>
+            <button
+              onClick={() => removeEntry.mutate(entry.id)}
+              className="pressable flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-danger-soft hover:text-danger"
+              aria-label="Remove from whitelist"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+        <div className="flex items-center gap-2 pt-1">
+          <Input placeholder="+91XXXXXXXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} className="h-11" />
+          <Input placeholder="Label (optional)" value={label} onChange={(e) => setLabel(e.target.value)} className="h-11" />
+          <Button size="sm" onClick={add} disabled={addEntry.isPending}>
+            <Plus size={14} /> Add
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function PhoneRoutesSection() {
   const { data: routes } = usePhoneRoutes();
   const { data: doctors } = useDoctors();
@@ -225,12 +290,29 @@ function PhoneRoutesSection() {
 
 export default function AutomationsPage() {
   const { settings, setSetting } = useClinic();
+  const role = useSession((s) => s.session?.role);
   const [draft, setDraft] = useState(settings.communication);
   const [editing, setEditing] = useState<CommWorkflow | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { setDraft(settings.communication); }, [settings.communication]);
+
+  // Receptionists can reach this page now (see layout.tsx), but only to
+  // manage the missed-call whitelist — every other section here writes
+  // owner-only settings server-side, so there's nothing else for them to do.
+  if (role === "receptionist") {
+    return (
+      <div className="stagger mx-auto max-w-2xl space-y-8 pb-24">
+        <header>
+          <p className="text-[12px] text-muted">Settings</p>
+          <h1 className="mt-1 text-balance font-display text-[clamp(2.2rem,8vw,3rem)] font-light leading-[0.98] tracking-[-0.05em]">Automations</h1>
+          <p className="mt-2 text-[13px] text-muted">Numbers to always log a missed call for, even if they&apos;re a saved contact.</p>
+        </header>
+        <MissedCallWhitelistSection />
+      </div>
+    );
+  }
 
   const toggleChannel = (c: CommChannel) => {
     setDraft((d) => ({ ...d, channelsEnabled: d.channelsEnabled.includes(c) ? d.channelsEnabled.filter((x) => x !== c) : [...d.channelsEnabled, c] }));
@@ -302,6 +384,8 @@ export default function AutomationsPage() {
       </section>
 
       <DeliveryStatusSection />
+
+      <MissedCallWhitelistSection />
 
       <PhoneRoutesSection />
 

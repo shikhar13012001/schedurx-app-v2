@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { signInWithPopup } from "firebase/auth";
 import { ArrowLeft, ArrowRight, Building2, Check, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { Wordmark } from "@/components/shell/brand";
@@ -18,7 +17,8 @@ import { PlanPicker, type PlanId, type PlanCatalog, type AddonCatalog } from "@/
 import { CallForwardingPicker, type Carrier } from "@/components/onboarding/call-forwarding-picker";
 import { TeamInviteScreen } from "@/components/onboarding/team-invite-screen";
 import { useSession } from "@/stores";
-import { getFirebaseAuth, googleProvider } from "@/lib/firebase";
+import { getFirebaseAuth } from "@/lib/firebase";
+import { signInWithGoogleAdaptive } from "@/lib/native-google-signin";
 import { api, ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import type { ClinicType, Role } from "@/lib/types";
@@ -267,8 +267,7 @@ export default function OnboardingPage() {
   const continueWithGoogle = async () => {
     setAuthing(true);
     try {
-      const result = await signInWithPopup(getFirebaseAuth(), googleProvider);
-      const user = result.user;
+      const user = await signInWithGoogleAdaptive();
       const idToken = await user.getIdToken();
 
       if (pendingInvite) {

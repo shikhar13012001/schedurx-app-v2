@@ -1,11 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { signInWithPopup } from "firebase/auth";
 import { toast } from "sonner";
 import { Wordmark } from "@/components/shell/brand";
 import { Button } from "@/components/ui/button";
-import { getFirebaseAuth, googleProvider } from "@/lib/firebase";
+import { signInWithGoogleAdaptive } from "@/lib/native-google-signin";
 
 type InviteDetails = { name: string | null; role: "doctor" | "receptionist"; clinicName: string | null };
 
@@ -30,8 +29,7 @@ export default function InvitePage() {
   const join = async () => {
     setJoining(true);
     try {
-      const result = await signInWithPopup(getFirebaseAuth(), googleProvider);
-      const user = result.user;
+      const user = await signInWithGoogleAdaptive();
 
       // The route verifies this ID token server-side and uses ITS uid for
       // the actual accept call — the body's firebaseUid is unused for

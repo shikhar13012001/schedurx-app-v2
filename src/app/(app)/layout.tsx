@@ -28,13 +28,17 @@ const SECTIONS = [
   { href: "/team", icon: UsersRound, label: "Team" },
   { href: "/history", icon: History, label: "AI activity" },
   { href: "/billing", icon: ReceiptIndianRupee, label: "Billing" },
-  // Writes are owner-only server-side (requireRole("owner")) — the frontend
-  // can't currently tell an owner apart from a regular doctor (both map to
-  // role "doctor" at login), so any doctor sees this and a non-owner who
-  // tries to save gets the same 403 toast Profile already shows for other
-  // owner-only settings. ownerOnly (unlike doctorish) is never overridden by
-  // receptionAnalytics — that toggle is specifically about Analytics.
-  { href: "/automations", icon: Workflow, label: "Automations", ownerOnly: true },
+  // Most of this page's writes are owner-only server-side
+  // (requireRole("owner")) — the frontend can't currently tell an owner
+  // apart from a regular doctor (both map to role "doctor" at login), so any
+  // doctor sees the full page and a non-owner who tries to save gets the
+  // same 403 toast Profile already shows for other owner-only settings.
+  // Receptionists CAN reach this page (unlike the old ownerOnly gate) — the
+  // page itself renders only the missed-call whitelist section for them
+  // (requireRole("owner", "receptionist") server-side), since they're
+  // typically the ones actually fielding these calls; every other section
+  // (workflows, phone routing, voice greeting) stays hidden for that role.
+  { href: "/automations", icon: Workflow, label: "Automations" },
   { href: "/notifications", icon: Bell, label: "Notifications" },
   { href: "/profile", icon: CircleUserRound, label: "Profile" },
 ];
@@ -121,7 +125,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!hydrated || !session) return <div className="min-h-dvh bg-bg" />;
   const visibleSections = SECTIONS.filter((s) => {
     if (s.doctorish && session.role === "receptionist" && !receptionAnalytics) return false;
-    if (s.ownerOnly && session.role === "receptionist") return false;
     return true;
   });
   const detailMode = /^\/(?:consults|patients)\/[^/]+$/.test(pathname);

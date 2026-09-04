@@ -10,7 +10,16 @@ export const metadata: Metadata = {
   description: "The operating system for your clinic. Queue, calendar, consults, patients — everything on your fingertips.",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "ScheduRx" },
-  icons: { icon: "/icons/icon-192.png", apple: "/icons/icon-192.png" },
+  icons: {
+    // Same media-scoped-array pattern as viewport.themeColor below — a
+    // dark-mode browser gets the dark-background logo tab icon, and vice
+    // versa, rather than one favicon that clashes with either theme.
+    icon: [
+      { url: "/icons/favicon-light.png", media: "(prefers-color-scheme: light)" },
+      { url: "/icons/favicon-dark.png", media: "(prefers-color-scheme: dark)" },
+    ],
+    apple: "/icons/icon-192.png",
+  },
 };
 
 export const viewport: Viewport = {

@@ -21,6 +21,8 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.69",
+    "@capacitor-firebase/authentication": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
     "@elevenlabs/client": "^1.22.0",
     "@elevenlabs/react": "^1.14.0",
     "@hookform/resolvers": "^3.9.0",
