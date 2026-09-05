@@ -11,7 +11,7 @@
 
 import type {
   Appointment, ApptStatus, ApptSource, CallLog, ChatMsg, DayStat, Doctor, Invoice,
-  Notif, Patient, QueueItem, QueueState, Staff, Task, Thread, Triage, Visit, VisitMode, WaLog,
+  Notif, Patient, QueueItem, QueueState, Staff, Task, Thread, Triage, Visit, VisitAttachment, VisitMode, WaLog,
 } from "@/lib/types";
 import type { Settings } from "@/stores";
 
@@ -240,7 +240,7 @@ export function fromApiPossibleNoShow(a: ApiPossibleNoShow): PossibleNoShow {
 
 // ─── Visit ────────────────────────────────────────────────────────────────────
 
-export interface ApiRxAttachment { path: string; type: "photo" | "digital" | "audio"; uploadedAt: string }
+export interface ApiRxAttachment { path: string; type: "photo" | "digital" | "audio"; uploadedAt: string; sentAt?: string | null }
 
 export interface ApiVisit {
   id: string;
@@ -255,7 +255,7 @@ export interface ApiVisit {
 }
 
 export function fromApiVisit(v: ApiVisit): Visit {
-  const attachments = v.rxAttachments ?? [];
+  const attachments: VisitAttachment[] = (v.rxAttachments ?? []).map((a) => ({ ...a, sentAt: a.sentAt ?? undefined }));
   return {
     id: v.id,
     date: v.visitDate,

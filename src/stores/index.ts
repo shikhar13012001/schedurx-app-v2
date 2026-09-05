@@ -106,8 +106,10 @@ type ClinicStore = {
 
   next: (doctorId: string) => Promise<void>;
   prev: (doctorId: string) => Promise<void>;
+  completeCurrent: (doctorId: string) => Promise<void>;
   jumpTo: (doctorId: string, queueId: string) => Promise<void>;
   reorderQueue: (ids: string[]) => Promise<void>;
+  reorderDay: (doctorId: string, date: string, orderedAppointmentIds: string[]) => Promise<void>;
   addWalkIn: (p: { patientId?: string; doctorId: string; displayName?: string; phoneNumber?: string }) => Promise<void>;
   checkInAppointment: (appointmentId: string, doctorId: string) => Promise<void>;
   confirmNoShow: (appointmentId: string) => Promise<void>;
@@ -159,6 +161,15 @@ export const useClinic = create<ClinicStore>()((set, get) => ({
     await api.post("/api/v1/queue/advance", { doctorId, direction: "prev" });
     await invalidate(["queue", clinicId()]);
   },
+  // Marks the current visit complete WITHOUT advancing the queue — the
+  // doctor stays on this patient until they explicitly tap ">" (next).
+  // Also invalidates appointments (unlike next/prev) because the "Visit
+  // complete" indicator on this same card reads Appointment.status, and
+  // nothing else refreshes it while we deliberately stay on this patient.
+  completeCurrent: async (doctorId) => {
+    await api.post("/api/v1/queue/advance", { doctorId, direction: "complete" });
+    await Promise.all([invalidate(["queue", clinicId()]), invalidate(["appointments", clinicId()])]);
+  },
   jumpTo: async (doctorId, queueId) => {
     await api.post("/api/v1/queue/advance", { doctorId, direction: "jumpTo", targetId: queueId });
     await invalidate(["queue", clinicId()]);
@@ -166,6 +177,16 @@ export const useClinic = create<ClinicStore>()((set, get) => ({
   reorderQueue: async (ids) => {
     await api.patch("/api/v1/queue/order", { ids });
     await invalidate(["queue", clinicId()]);
+  },
+  // Unlike reorderQueue, this REALLY reschedules — real nettu sync, real
+  // overlap check, real "your appointment time changed" notification for
+  // every appointment whose time actually moves. Throws on rejection
+  // (e.g. REORDER_CONFLICT/REORDER_STALE) so the caller can revert its own
+  // optimistic drag state and show the specific reason — this store action
+  // deliberately doesn't swallow or generalize that error.
+  reorderDay: async (doctorId, date, orderedAppointmentIds) => {
+    await api.post("/api/v1/appointments/reorder-day", { doctorId, date, orderedAppointmentIds });
+    await invalidate(["appointments", clinicId()]);
   },
   addWalkIn: async ({ patientId, doctorId, displayName, phoneNumber }) => {
     await api.post("/api/v1/queue/walk-in", { doctorId, patientId, displayName, phoneNumber });

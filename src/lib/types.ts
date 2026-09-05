@@ -10,7 +10,7 @@ export interface Staff { id: string; name: string; role: Role; email: string; do
 
 export type VisitMode = "clinic" | "video" | "audio" | "text";
 export type VisitAttachmentType = "photo" | "digital" | "audio";
-export interface VisitAttachment { path: string; type: VisitAttachmentType; uploadedAt: string }
+export interface VisitAttachment { path: string; type: VisitAttachmentType; uploadedAt: string; sentAt?: string }
 export interface Visit {
   id: string; date: string; doctorId: string; mode: VisitMode;
   symptoms: string; note: string; rxAttached?: boolean; rxDigital?: boolean; recordingAttached?: boolean; followUpOn?: string;

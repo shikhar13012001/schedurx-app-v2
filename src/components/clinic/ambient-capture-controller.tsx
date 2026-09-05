@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAmbientSession } from "@/hooks/use-ambient-session";
 import { useLiveRecommendation } from "@/hooks/use-live-recommendation";
@@ -16,9 +17,10 @@ import type { CaptureTarget } from "@/lib/capture-session";
 // dispatches, rather than receiving the target patient via props, since
 // this isn't its sibling in the render tree.
 export function AmbientCaptureController() {
+  const router = useRouter();
   const session = useAmbientSession();
   const recommendation = useLiveRecommendation(session.transcript, session.phase === "listening");
-  const { next } = useClinic();
+  const { completeCurrent } = useClinic();
   const [target, setTarget] = useState<CaptureTarget | null>(null);
   // Save to Notes and Checkout both drive session.phase through "saving" —
   // this is which one is actually in flight, so the panel doesn't show
@@ -58,11 +60,13 @@ export function AmbientCaptureController() {
   };
 
   // Everything Save to Notes does, then also marks the appointment complete
-  // and fires the patient's post-visit message — the same
-  // markCompleted/comms path queue "Next" already triggers, just reachable
-  // here so a doctor can finish the whole visit without leaving this panel
-  // to go find that button. Gracefully handles nobody else being queued
-  // next (queueSvc.advance already treats that as a normal, not an error).
+  // and fires the patient's post-visit message — the same markCompleted/comms
+  // path as queue "Next", just reachable here so a doctor can finish the
+  // whole visit without leaving this panel. Deliberately does NOT advance
+  // the queue to the next patient (that used to be a live-reported bug:
+  // Checkout silently moved the doctor off the current patient's screen
+  // before they meant to move on) — completeCurrent leaves the queue
+  // exactly where it is; the doctor taps ">" separately when ready.
   const handleCheckout = async () => {
     if (!target?.patientId) return;
     setCheckingOut(true);
@@ -76,12 +80,23 @@ export function AmbientCaptureController() {
       });
       if (!saved) return;
       try {
-        await next(target.doctorId);
+        await completeCurrent(target.doctorId);
         toast.success(`${target.displayName?.split(" ")[0] ?? "Patient"} checked out`, {
-          description: "Visit marked complete — their post-visit message is on its way.",
+          description: "Visit marked complete — their post-visit message is on its way. Tap › when you're ready for the next patient.",
         });
+        // Video/audio consults have no in-person moment where a doctor would
+        // naturally think to open the patient file and write a prescription
+        // — surface it as a one-tap suggestion right after checkout instead
+        // of forcing navigation (a doctor moving straight to the next
+        // patient shouldn't be interrupted by a redirect they didn't ask for).
+        if (target.mode === "video" || target.mode === "audio") {
+          toast.message("Add a prescription?", {
+            description: `${target.displayName?.split(" ")[0] ?? "This patient"} won't get one automatically for a remote visit.`,
+            action: { label: "Open file", onClick: () => router.push(`/patients/${target.patientId}?rx=1`) },
+          });
+        }
       } catch (err) {
-        toast.error(err instanceof ApiError ? err.message : "Saved the note, but couldn't complete checkout — try Next from the queue.");
+        toast.error(err instanceof ApiError ? err.message : "Saved the note, but couldn't complete checkout — try marking it done from the queue.");
       }
     } finally {
       setCheckingOut(false);

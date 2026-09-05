@@ -4,6 +4,8 @@
 // microphone, MediaRecorder, or the ElevenLabs Scribe WebSocket connection
 // that the component itself needs.
 
+import type { VisitMode } from "@/lib/types";
+
 export type CaptureState = "idle" | "capturing" | "paused";
 
 // Carried on the "srx-start-capture" window event NowServing dispatches
@@ -17,6 +19,10 @@ export interface CaptureTarget {
   appointmentId?: string;
   symptoms?: string;
   displayName?: string;
+  // Lets Checkout decide whether to surface the video-consult journey (an
+  // Rx suggestion, a mode-aware post-visit message) — see
+  // ambient-capture-controller.tsx's handleCheckout.
+  mode?: VisitMode;
 }
 
 // What a single tap on the AIControl button should do next, given the

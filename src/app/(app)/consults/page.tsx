@@ -11,9 +11,7 @@ import { useSession } from "@/stores";
 import { useThreads } from "@/hooks/use-threads";
 import { useAppointments } from "@/hooks/use-appointments";
 import { usePatients } from "@/hooks/use-patients";
-import { cn, fmtTime, relTime, triageLabel } from "@/lib/utils";
-
-const TRIAGE_ORDER = { critical: 0, moderate: 1, routine: 2 } as const;
+import { cn, fmtTime, relTime, sortThreadsByTriage, triageLabel } from "@/lib/utils";
 
 function ConsultsInner() {
   const params = useSearchParams();
@@ -23,10 +21,7 @@ function ConsultsInner() {
   const { data: patients } = usePatients();
   const [query, setQuery] = useState("");
 
-  const sorted = useMemo(
-    () => [...threads].sort((a, b) => TRIAGE_ORDER[a.triage] - TRIAGE_ORDER[b.triage] || b.unread - a.unread),
-    [threads]
-  );
+  const sorted = useMemo(() => sortThreadsByTriage(threads), [threads]);
   const online = useMemo(
     () => appointments
       .filter((a) => (a.mode === "video" || a.mode === "audio") && ["confirmed", "tentative"].includes(a.status))

@@ -118,7 +118,15 @@ function QueueRow({
 
       {isCurrent ? (
         <span className="mr-1 inline-flex h-10 items-center gap-2 rounded-full bg-white/10 px-3 text-[12px] text-white/[0.82]">
-          <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Live
+          {appt?.status === "completed" ? (
+            <>
+              <span className="h-1.5 w-1.5 rounded-full bg-success" /> Done
+            </>
+          ) : (
+            <>
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Live
+            </>
+          )}
         </span>
       ) : (
         <button

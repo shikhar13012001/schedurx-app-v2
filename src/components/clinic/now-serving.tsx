@@ -2,7 +2,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, Calendar, CalendarClock, ChevronLeft, ChevronRight, Mic, Sparkles, UserRoundPlus } from "lucide-react";
+import { ArrowRight, Calendar, CalendarClock, Check, ChevronLeft, ChevronRight, Mic, Sparkles, UserRoundPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -71,7 +71,7 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
 
   const lastVisit = patient?.visits[0];
   const isNew = !patient?.visits.length;
-  const captureTarget: CaptureTarget = { patientId: patient?.id, doctorId, appointmentId: appt?.id, symptoms: appt?.symptoms, displayName };
+  const captureTarget: CaptureTarget = { patientId: patient?.id, doctorId, appointmentId: appt?.id, symptoms: appt?.symptoms, displayName, mode: appt?.mode };
 
   const setFollowUp = async (label: string, dueDate: Date) => {
     if (!patient && !current?.displayName) return;
@@ -147,6 +147,17 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
               <div className={cn("mt-5 rounded-[26px] px-4 py-4", compact ? "bg-surface-2/75" : "bg-white/10 backdrop-blur-md") }>
                 <p className={cn("text-[11px]", compact ? "text-faint" : "text-white/[0.48]")}>Reason for visit</p>
                 <p className={cn("mt-1 text-[14.5px] leading-snug", compact ? "text-ink" : "text-white/[0.92]")}>{appt.symptoms}</p>
+              </div>
+            )}
+
+            {/* Checkout marks the visit complete without advancing the
+                queue (see completeCurrent) — this is the only signal that
+                already happened before ">" is tapped, so it doesn't read as
+                the app having silently done nothing. */}
+            {appt?.status === "completed" && !compact && (
+              <div className="mt-5 flex items-center gap-2 rounded-pill bg-white/10 px-4 py-2.5 text-[12.5px] text-white/[0.85]">
+                <Check size={14} className="text-primary" />
+                Visit complete — tap <ChevronRight size={13} className="inline" /> when you&apos;re ready for the next patient
               </div>
             )}
 

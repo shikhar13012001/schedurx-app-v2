@@ -38,7 +38,6 @@ export default function PatientProfilePage() {
   const staffDoctorId = useSession((s) => s.session?.doctorId);
   const digitalRx = useClinic((s) => s.settings.digitalRx);
   const simple = useClinic((s) => s.settings.viewMode !== "advanced");
-  const reply = useClinic((s) => s.reply);
   const [showAllVisits, setShowAllVisits] = useState(false);
   const { data: patient, isLoading } = usePatient(id);
   const { data: appointmentHistory = [] } = usePatientAppointments(id);
@@ -51,6 +50,7 @@ export default function PatientProfilePage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const attachFor = useRef<string | null>(null);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
+  const [sendingPath, setSendingPath] = useState<string | null>(null);
   const [playingVisitId, setPlayingVisitId] = useState<string | null>(null);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
 
@@ -100,6 +100,25 @@ export default function PatientProfilePage() {
       toast.error("Couldn't open that file — try again.");
     } finally {
       setOpeningPath(null);
+    }
+  };
+
+  // Gap this closes: the photo-upload flow (onAttach, above) had no send
+  // action at all — only the generated-PDF flow (onGenerateRx) sent
+  // anything, and it built that send inline client-side. Both now call this
+  // one backend endpoint, which also covers a doctor wanting to re-send an
+  // already-sent attachment (e.g. the patient lost the link) — tapping this
+  // again after "Sent" is allowed on purpose, not blocked.
+  const sendAttachment = async (visitId: string, path: string) => {
+    setSendingPath(path);
+    try {
+      await api.post(`/api/v1/visits/${visitId}/attachments/send`, { path });
+      await invalidatePatientData();
+      toast.success("Sent on WhatsApp");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't send that — try again.");
+    } finally {
+      setSendingPath(null);
     }
   };
 
@@ -158,11 +177,13 @@ export default function PatientProfilePage() {
       });
       await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/pdf" }, body: blob });
       await api.post(`/api/v1/visits/${latest.id}/attachments`, { path, type: "digital" });
+      // Sending now goes through the same backend endpoint the photo-upload
+      // flow's "Send to WhatsApp" button uses (previously this was built
+      // inline here — findOrCreateThread + reply — while the photo flow had
+      // no send action at all; centralizing it server-side means both share
+      // one real implementation instead of a second copy).
+      await api.post(`/api/v1/visits/${latest.id}/attachments/send`, { path });
       await invalidatePatientData();
-
-      const { url } = await api.get<{ url: string }>(`/api/v1/visits/${latest.id}/attachments/read-url?path=${encodeURIComponent(path)}`);
-      const thread = await findOrCreateThread.mutateAsync(patient.id);
-      await reply(thread.id, `Hi ${patient.name.split(" ")[0]}, here's your prescription: ${url}`);
 
       setRxOpen(false);
       setRxText("");
@@ -247,14 +268,28 @@ export default function PatientProfilePage() {
                 {visit.note && <p className="mt-2 text-[13px] leading-relaxed text-muted">{visit.note}</p>}
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
                   {rxAttachments.map((a) => (
-                    <button
-                      key={a.path}
-                      onClick={() => void openAttachment(visit.id, a.path)}
-                      disabled={openingPath === a.path}
-                      className="inline-flex items-center gap-1.5 rounded-pill bg-surface-soft px-3 py-1.5 text-muted disabled:opacity-60"
-                    >
-                      <Paperclip size={11} /> {openingPath === a.path ? "Opening…" : a.type === "digital" ? "Prescription PDF" : "View Rx"}
-                    </button>
+                    <span key={a.path} className="inline-flex items-center gap-1.5">
+                      <button
+                        onClick={() => void openAttachment(visit.id, a.path)}
+                        disabled={openingPath === a.path}
+                        className="inline-flex items-center gap-1.5 rounded-pill bg-surface-soft px-3 py-1.5 text-muted disabled:opacity-60"
+                      >
+                        <Paperclip size={11} /> {openingPath === a.path ? "Opening…" : a.type === "digital" ? "Prescription PDF" : "View Rx"}
+                      </button>
+                      {(role === "doctor" || role === "receptionist") && (
+                        <button
+                          onClick={() => void sendAttachment(visit.id, a.path)}
+                          disabled={sendingPath === a.path}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 disabled:opacity-60",
+                            a.sentAt ? "bg-success-soft text-success" : "bg-surface-soft text-muted"
+                          )}
+                        >
+                          <MessageSquareText size={11} />
+                          {sendingPath === a.path ? "Sending…" : a.sentAt ? "Sent ✓" : "Send to WhatsApp"}
+                        </button>
+                      )}
+                    </span>
                   ))}
                   {!hasRx && (
                     <button onClick={() => { attachFor.current = visit.id; fileRef.current?.click(); }} className="inline-flex items-center gap-1.5 rounded-pill bg-surface-soft px-3 py-1.5 text-muted"><Camera size={11} /> Attach Rx</button>

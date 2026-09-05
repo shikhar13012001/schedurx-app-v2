@@ -11,6 +11,21 @@ export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 const TRIAGE_LABELS: Record<Triage, string> = { critical: "High", moderate: "Medium", routine: "Low" };
 export function triageLabel(triage: Triage) { return TRIAGE_LABELS[triage]; }
 
+const TRIAGE_ORDER: Record<Triage, number> = { critical: 0, moderate: 1, routine: 2 };
+
+// Consults inbox ranking: triage tier first, then most-recently-active
+// thread within that tier, with unread count as a final tie-breaker only.
+// Extracted as a pure, exported function (rather than left inline in the
+// page) so it's independently unit-testable without rendering the page.
+export function sortThreadsByTriage<T extends { triage: Triage; unread: number; lastMessageAt?: string }>(threads: T[]): T[] {
+  return [...threads].sort(
+    (a, b) =>
+      TRIAGE_ORDER[a.triage] - TRIAGE_ORDER[b.triage] ||
+      (b.lastMessageAt ? +new Date(b.lastMessageAt) : 0) - (a.lastMessageAt ? +new Date(a.lastMessageAt) : 0) ||
+      b.unread - a.unread
+  );
+}
+
 export function initials(name: string) {
   return name.replace(/^Dr\.?\s+/i, "").split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
 }

@@ -9,6 +9,7 @@ import {
   ArrowRight,
   CalendarPlus,
   ChevronDown,
+  GripVertical,
   ListTodo,
   Phone,
   Search,
@@ -248,6 +249,12 @@ function DoctorHome({ doctorId }: { doctorId: string }) {
             <p className="mt-6 text-[16px] font-medium tracking-[-0.03em]">Block time</p>
           </button>
         </div>
+
+        <Link href="/schedule/manage" className="pressable mt-3 flex h-14 w-full items-center gap-3 rounded-panel bg-surface px-5 shadow-card">
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-soft"><GripVertical size={17} /></span>
+          <span className="flex-1 text-[14px] font-medium">Manage today&apos;s appointments</span>
+          <ArrowRight size={16} className="text-muted" />
+        </Link>
 
         <AnimatePresence initial={false}>
           {overviewOpen && (

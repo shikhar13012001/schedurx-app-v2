@@ -4,9 +4,31 @@ import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Lightbulb, Mic, Square, X } from "lucide-react";
 import { AIControl } from "@/components/ui/ai-control";
+import { useAudioLevel } from "@/hooks/use-audio-level";
 import type { AmbientSession } from "@/hooks/use-ambient-session";
 import type { LiveRecommendation } from "@/hooks/use-live-recommendation";
 import { cn } from "@/lib/utils";
+
+// Real mic-driven waveform, replacing what used to be just a static pulsing
+// dot — reads live volume off the same shared stream use-ambient-session.ts
+// already opened (see its own comment on why there's only ever one
+// getUserMedia call). Kept modest (thin bars, small height range) on
+// purpose: this sits in front of a doctor mid-consultation, not a music
+// app — a bouncing, attention-grabbing visualizer would be the wrong tone
+// here.
+function Waveform({ levels }: { levels: number[] }) {
+  return (
+    <div className="flex h-4 items-center gap-[3px]" aria-hidden>
+      {levels.map((level, i) => (
+        <span
+          key={i}
+          className="w-[3px] rounded-full bg-danger transition-[height] duration-100 ease-out"
+          style={{ height: `${4 + level * 12}px` }}
+        />
+      ))}
+    </div>
+  );
+}
 
 function fmtElapsed(totalSec: number) {
   const m = Math.floor(totalSec / 60);
@@ -40,6 +62,7 @@ export function AmbientListenerPanel({
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const live = session.phase === "listening";
   const reviewing = session.phase === "review" || session.phase === "saving";
+  const levels = useAudioLevel(live ? session.micStream : null);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -71,7 +94,7 @@ export function AmbientListenerPanel({
                   </>
                 ) : live ? (
                   <>
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
+                    <Waveform levels={levels} />
                     <span className="text-[13px] text-white/80">Listening{patientName ? ` · ${patientName}` : ""}</span>
                   </>
                 ) : session.phase === "saving" ? (

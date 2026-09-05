@@ -67,6 +67,12 @@ export interface AmbientSession {
   transcript: string;
   elapsedSec: number;
   hasRecording: boolean;
+  // The same shared mic stream attachRecorder already taps for the saved
+  // recording (see getSharedMicStream's own comment on why this is the one
+  // stream, never a second independent getUserMedia call) — exposed so a
+  // consumer (the audio-level visualizer) can read live volume off it
+  // without reaching into this hook's internals.
+  micStream: MediaStream | null;
   start: () => Promise<void>;
   stop: () => void;
   resume: () => Promise<void>;
@@ -85,6 +91,7 @@ export function useAmbientSession(): AmbientSession {
   const [error, setError] = useState<string | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [hasRecording, setHasRecording] = useState(false);
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
 
   const transcriptRef = useRef("");
   const [transcript, setTranscript] = useState("");
@@ -231,6 +238,7 @@ export function useAmbientSession(): AmbientSession {
       recorder.start();
       recorderRef.current = recorder;
       setHasRecording(true);
+      setMicStream(stream);
     } catch (err) {
       console.error("[ambient-session] attachRecorder failed:", err);
     }
@@ -317,6 +325,7 @@ export function useAmbientSession(): AmbientSession {
     scribe.clearTranscripts();
     if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
     recorderRef.current = null;
+    setMicStream(null);
   }, [scribe, pauseTimer]);
 
   const discard = useCallback(() => {
@@ -385,6 +394,7 @@ export function useAmbientSession(): AmbientSession {
         }
         scribe.disconnect();
         recorderRef.current = null;
+        setMicStream(null);
         setPhase("saved");
         setTimeout(() => setPhase((p) => (p === "saved" ? "idle" : p)), 1800);
         return true;
@@ -397,5 +407,5 @@ export function useAmbientSession(): AmbientSession {
     [scribe, discard]
   );
 
-  return { phase, error, partialText: scribe.partialTranscript, transcript, elapsedSec, hasRecording, start, stop, resume, discard, saveToNotes };
+  return { phase, error, partialText: scribe.partialTranscript, transcript, elapsedSec, hasRecording, micStream, start, stop, resume, discard, saveToNotes };
 }
