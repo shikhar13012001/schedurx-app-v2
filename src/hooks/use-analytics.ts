@@ -11,11 +11,12 @@ export function useAnalyticsSummary(days = 30) {
     queryKey: ["analytics-summary", clinicId, days],
     enabled: !!clinicId,
     queryFn: async () => {
-      const { daily, totals } = await api.get<{
+      const { daily, totals, previousTotals } = await api.get<{
         daily: ApiDayStat[];
         totals: { appointments: number; revenue: number; cancellations: number };
+        previousTotals: { appointments: number; revenue: number; cancellations: number };
       }>(`/api/v1/analytics/summary?days=${days}`);
-      return { daily: daily.map(fromApiDayStat), totals };
+      return { daily: daily.map(fromApiDayStat), totals, previousTotals };
     },
   });
 }

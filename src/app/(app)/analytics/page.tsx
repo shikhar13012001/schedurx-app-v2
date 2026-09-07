@@ -6,6 +6,7 @@ import { ArrowRight, Lock, Sparkles } from "lucide-react";
 import { useClinic, useSession } from "@/stores";
 import { useAnalyticsSummary, useUtilization, usePracticePulse } from "@/hooks/use-analytics";
 import { useAppointments } from "@/hooks/use-appointments";
+import { usePatients } from "@/hooks/use-patients";
 import { cn, inr } from "@/lib/utils";
 
 // recharts is a heavy dependency (~100kB) that only matters once "Full
@@ -21,6 +22,7 @@ function AnalyticsInner() {
   const { data: summary } = useAnalyticsSummary(30);
   const { data: utilizationData } = useUtilization(7);
   const { data: insights } = usePracticePulse();
+  const { data: patients } = usePatients();
   const stats = summary?.daily ?? [];
   const [showAll, setShowAll] = useState(settings.viewMode === "advanced");
 
@@ -29,6 +31,18 @@ function AnalyticsInner() {
   const noShows = summary?.totals.cancellations ?? 0;
   const noShowRate = total ? Math.round((noShows / total) * 100) : 0;
   const utilization = (utilizationData ?? []).map((doctor) => ({ name: doctor.doctorName?.split(" ")[1] ?? doctor.doctorName, pct: doctor.utilizationPct }));
+
+  // Real month-over-month comparison — this used to be a hardcoded "+9%"
+  // shown regardless of actual data. null (not 0) when there's nothing to
+  // compare against yet (a brand-new clinic with no prior-window data),
+  // so that case reads as "no comparison available" rather than a
+  // misleading "0% change".
+  const previousRevenue = summary?.previousTotals.revenue ?? 0;
+  const revenueChangePct = previousRevenue > 0 ? Math.round(((revenue - previousRevenue) / previousRevenue) * 100) : null;
+  // Same real-vs-fake fix for the "61% return" tile — a returning patient
+  // is one with more than one recorded visit (Patient.visitsCount, already
+  // real and queried — see the patients-list Visits column).
+  const returnRate = patients?.length ? Math.round((patients.filter((p) => p.visitsCount > 1).length / patients.length) * 100) : null;
   const statusRows = useMemo(() => {
     const labels = {
       confirmed: "Confirmed",
@@ -58,8 +72,11 @@ function AnalyticsInner() {
         <div className="relative z-10">
           <p className="text-[12px] text-charcoal/[0.68] dark:text-white/[0.68]">Collected · last 30 days</p>
           <p className="mt-4 font-display text-[clamp(3.7rem,16vw,6.3rem)] font-light leading-[0.82] tracking-[-0.065em] tabular-nums">{inr(revenue)}</p>
-          <p className="mt-4 text-[13px] text-charcoal/[0.72] dark:text-white/[0.72]">+9% from last month</p>
-          <div className="mt-7 h-[2px] overflow-hidden rounded-full bg-charcoal/[0.22] dark:bg-white/[0.24]"><div className="h-full w-[69%] bg-charcoal dark:bg-white" /></div>
+          {revenueChangePct != null && (
+            <p className="mt-4 text-[13px] text-charcoal/[0.72] dark:text-white/[0.72]">
+              {revenueChangePct >= 0 ? "+" : ""}{revenueChangePct}% from the previous 30 days
+            </p>
+          )}
           <div className="mt-3 flex justify-between text-[11.5px] text-charcoal/[0.68] dark:text-white/[0.68]"><span>{total} appointments</span><span>{noShowRate}% no-show</span></div>
         </div>
       </section>
@@ -84,7 +101,7 @@ function AnalyticsInner() {
       <section className="grid grid-cols-3 gap-3 border-y border-border/60 py-5">
         <div><p className="font-display text-[28px] font-light tracking-[-0.045em] tabular-nums">{total}</p><p className="mt-1 text-[11px] text-muted">appointments</p></div>
         <div><p className="font-display text-[28px] font-light tracking-[-0.045em] tabular-nums">{noShowRate}%</p><p className="mt-1 text-[11px] text-muted">no-show</p></div>
-        <div><p className="font-display text-[28px] font-light tracking-[-0.045em] tabular-nums">61%</p><p className="mt-1 text-[11px] text-muted">return</p></div>
+        <div><p className="font-display text-[28px] font-light tracking-[-0.045em] tabular-nums">{returnRate ?? "—"}{returnRate != null && "%"}</p><p className="mt-1 text-[11px] text-muted">return</p></div>
       </section>
 
       {!showAll ? (
