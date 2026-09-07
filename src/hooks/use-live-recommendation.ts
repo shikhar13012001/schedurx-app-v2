@@ -14,7 +14,13 @@ const MIN_INTERVAL_MS = 8000;
 const QUIET_PERIOD_MS = 2500;
 
 export interface LiveRecommendation {
-  recommendation: string | null;
+  // Explicit product decision (2026-09-08): the backend now labels this a
+  // "diagnosis" suggestion rather than the previous "tentative
+  // consideration, never a diagnosis" framing — see openai-service.js's
+  // suggestDuringConsult comment for the full context. Both fields are
+  // independently nullable — a transcript can warrant one without the other.
+  diagnosis: string | null;
+  nextQuestion: string | null;
   loading: boolean;
   reset: () => void;
 }
@@ -24,7 +30,8 @@ export interface LiveRecommendation {
 // Debounced on a quiet period after new content, not a fixed interval, so
 // it tends to land on natural pauses rather than mid-sentence.
 export function useLiveRecommendation(transcript: string, active: boolean): LiveRecommendation {
-  const [recommendation, setRecommendation] = useState<string | null>(null);
+  const [diagnosis, setDiagnosis] = useState<string | null>(null);
+  const [nextQuestion, setNextQuestion] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFetchedLengthRef = useRef(0);
@@ -43,8 +50,11 @@ export function useLiveRecommendation(transcript: string, active: boolean): Live
       lastFetchAtRef.current = Date.now();
       setLoading(true);
       api
-        .post<{ suggestion: string | null }>("/api/v1/visits/suggest", { transcript })
-        .then(({ suggestion }) => { if (suggestion) setRecommendation(suggestion); })
+        .post<{ diagnosis: string | null; nextQuestion: string | null }>("/api/v1/visits/suggest", { transcript })
+        .then(({ diagnosis: d, nextQuestion: q }) => {
+          if (d) setDiagnosis(d);
+          if (q) setNextQuestion(q);
+        })
         .catch(() => {
           // Best-effort — a failed suggestion call is silent, never interrupts the consult.
         })
@@ -55,11 +65,12 @@ export function useLiveRecommendation(transcript: string, active: boolean): Live
   }, [transcript, active]);
 
   const reset = () => {
-    setRecommendation(null);
+    setDiagnosis(null);
+    setNextQuestion(null);
     lastFetchedLengthRef.current = 0;
     lastFetchAtRef.current = 0;
     if (timerRef.current) clearTimeout(timerRef.current);
   };
 
-  return { recommendation, loading, reset };
+  return { diagnosis, nextQuestion, loading, reset };
 }

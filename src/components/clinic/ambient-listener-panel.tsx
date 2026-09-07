@@ -1,31 +1,37 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Lightbulb, Mic, Square, X } from "lucide-react";
+import { HelpCircle, Mic, Square, Stethoscope, X } from "lucide-react";
 import { AIControl } from "@/components/ui/ai-control";
 import { useAudioLevel } from "@/hooks/use-audio-level";
 import type { AmbientSession } from "@/hooks/use-ambient-session";
 import type { LiveRecommendation } from "@/hooks/use-live-recommendation";
-import { cn } from "@/lib/utils";
 
-// Real mic-driven waveform, replacing what used to be just a static pulsing
-// dot — reads live volume off the same shared stream use-ambient-session.ts
-// already opened (see its own comment on why there's only ever one
-// getUserMedia call). Kept modest (thin bars, small height range) on
-// purpose: this sits in front of a doctor mid-consultation, not a music
-// app — a bouncing, attention-grabbing visualizer would be the wrong tone
-// here.
-function Waveform({ levels }: { levels: number[] }) {
+// Gemini/Siri-style listening visual — three soft, blurred, audio-reactive
+// layers instead of a literal waveform. Replaces the earlier thin-bar
+// waveform AND the live transcript text entirely (explicit product
+// decision, 2026-09-08): the doctor sees this and the AI suggestions below
+// it, never the raw scrolling transcript — notes/transcript are still
+// captured and saved exactly as before, just not displayed live.
+function ListeningOrb({ levels }: { levels: number[] }) {
+  const avg = levels.length ? levels.reduce((a, b) => a + b, 0) / levels.length : 0;
   return (
-    <div className="flex h-4 items-center gap-[3px]" aria-hidden>
-      {levels.map((level, i) => (
-        <span
-          key={i}
-          className="w-[3px] rounded-full bg-danger transition-[height] duration-100 ease-out"
-          style={{ height: `${4 + level * 12}px` }}
-        />
-      ))}
+    <div className="relative flex h-36 w-36 items-center justify-center" aria-hidden>
+      <motion.div
+        className="absolute h-36 w-36 rounded-full bg-gradient-to-br from-primary/50 via-[#8b7bf0]/40 to-[#ec6bb0]/40 blur-2xl"
+        animate={{ scale: 1 + avg * 0.55, opacity: 0.55 + avg * 0.35 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+      />
+      <motion.div
+        className="absolute h-24 w-24 rounded-full bg-gradient-to-tr from-primary/70 via-[#8b7bf0]/60 to-[#ec6bb0]/55 blur-md"
+        animate={{ scale: 1 + avg * 0.4, rotate: avg * 40 }}
+        transition={{ duration: 0.14, ease: "easeOut" }}
+      />
+      <motion.div
+        className="relative h-14 w-14 rounded-full bg-gradient-to-br from-white via-primary/80 to-[#8b7bf0]/80 shadow-[0_0_36px_rgba(255,255,255,0.3)]"
+        animate={{ scale: 1 + avg * 0.22 }}
+        transition={{ duration: 0.1, ease: "easeOut" }}
+      />
     </div>
   );
 }
@@ -37,8 +43,8 @@ function fmtElapsed(totalSec: number) {
 }
 
 // Fixed to the bottom of the Home page, roughly a quarter of the viewport —
-// the entire mic -> transcript -> recommendation -> save flow lives here,
-// so nothing ever navigates away from Home to capture a consult.
+// the entire mic -> visual -> AI suggestions -> save flow lives here, so
+// nothing ever navigates away from Home to capture a consult.
 export function AmbientListenerPanel({
   session,
   recommendation,
@@ -59,14 +65,10 @@ export function AmbientListenerPanel({
   onSaveToNotes: () => void;
   onCheckout: () => void;
 }) {
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
   const live = session.phase === "listening";
   const reviewing = session.phase === "review" || session.phase === "saving";
   const levels = useAudioLevel(live ? session.micStream : null);
-
-  useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [session.transcript, session.partialText]);
+  const hasSuggestions = !!(recommendation.diagnosis || recommendation.nextQuestion);
 
   return (
     <AnimatePresence>
@@ -83,7 +85,7 @@ export function AmbientListenerPanel({
           className="fixed inset-x-0 bottom-[calc(70px+env(safe-area-inset-bottom)+14px)] z-40 px-3 md:bottom-4"
           data-noswipe
         >
-          <div className="srx-dark-glass mx-auto flex max-h-[46vh] min-h-[26vh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[30px] rounded-b-[30px] px-5 pb-4 pt-4 text-white shadow-dock">
+          <div className="srx-dark-glass mx-auto flex max-h-[52vh] min-h-[26vh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[30px] rounded-b-[30px] px-5 pb-4 pt-4 text-white shadow-dock">
             {/* Header */}
             <div className="flex shrink-0 items-center justify-between">
               <div className="flex items-center gap-2">
@@ -94,7 +96,7 @@ export function AmbientListenerPanel({
                   </>
                 ) : live ? (
                   <>
-                    <Waveform levels={levels} />
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
                     <span className="text-[13px] text-white/80">Listening{patientName ? ` · ${patientName}` : ""}</span>
                   </>
                 ) : session.phase === "saving" ? (
@@ -123,40 +125,47 @@ export function AmbientListenerPanel({
 
             {session.error && <p className="mt-2 shrink-0 text-[12px] leading-relaxed text-danger">{session.error}</p>}
 
-            {/* Transcript */}
-            {session.phase !== "saved" && (
-              <div className="mt-3 min-h-0 flex-1 overflow-y-auto text-[14px] leading-relaxed text-white/85">
-                {session.transcript || session.partialText ? (
-                  <p>
-                    {session.transcript}
-                    {session.partialText && <span className="text-white/50"> {session.partialText}</span>}
-                  </p>
-                ) : (
-                  <p className="text-white/45">{live ? "Say something — this updates as you speak." : "No transcript yet."}</p>
-                )}
-                <div ref={transcriptEndRef} />
+            {/* Listening visual — no transcript text shown; notes are still
+                captured and saved underneath exactly as before. */}
+            {live && (
+              <div className="flex flex-1 items-center justify-center py-2">
+                <ListeningOrb levels={levels} />
               </div>
             )}
 
-            {/* Recommendation */}
-            {(recommendation.recommendation || recommendation.loading) && session.phase !== "saved" && (
-              <div className="mt-3 flex shrink-0 items-start gap-2.5 rounded-[18px] bg-primary/[0.14] px-3.5 py-3">
-                <Lightbulb size={14} className="mt-0.5 shrink-0 text-primary-ink" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] text-white/50">Consider</p>
-                  <p className={cn("mt-0.5 text-[13px] leading-relaxed text-white/85", recommendation.loading && !recommendation.recommendation && "text-white/40")}>
-                    {recommendation.recommendation ?? "Thinking…"}
-                  </p>
-                </div>
-                {recommendation.loading && recommendation.recommendation && <span className="mt-1 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" />}
+            {/* AI suggestions — diagnosis and next question are independent;
+                either, both, or neither may be present at a given moment. */}
+            {hasSuggestions && session.phase !== "saved" && (
+              <div className="mt-3 shrink-0 space-y-2">
+                {recommendation.diagnosis && (
+                  <div className="flex items-start gap-2.5 rounded-[18px] bg-primary/[0.14] px-3.5 py-3">
+                    <Stethoscope size={14} className="mt-0.5 shrink-0 text-primary-ink" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] text-white/50">AI-suggested diagnosis · for your review</p>
+                      <p className="mt-0.5 text-[13px] leading-relaxed text-white/85">{recommendation.diagnosis}</p>
+                    </div>
+                  </div>
+                )}
+                {recommendation.nextQuestion && (
+                  <div className="flex items-start gap-2.5 rounded-[18px] bg-white/10 px-3.5 py-3">
+                    <HelpCircle size={14} className="mt-0.5 shrink-0 text-white/70" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] text-white/50">Next question to ask</p>
+                      <p className="mt-0.5 text-[13px] leading-relaxed text-white/85">{recommendation.nextQuestion}</p>
+                    </div>
+                  </div>
+                )}
               </div>
+            )}
+            {!hasSuggestions && recommendation.loading && live && (
+              <p className="mt-1 shrink-0 text-center text-[11.5px] text-white/40">Thinking…</p>
             )}
 
             {/* Review / save actions */}
             {reviewing && (
               <div className="mt-3 shrink-0 space-y-2">
                 <div className="flex items-center gap-3 text-[11.5px] text-white/50">
-                  <span>Transcript saved</span>
+                  <span>Notes saved</span>
                   {session.hasRecording && <span>· Audio {session.phase === "saving" ? "saving…" : "ready"}</span>}
                 </div>
                 {/* Checkout does everything Save to Notes does, then also

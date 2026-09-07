@@ -54,7 +54,8 @@ export function AmbientCaptureController() {
       doctorId: target.doctorId,
       appointmentId: target.appointmentId,
       symptoms: target.symptoms,
-      recommendation: recommendation.recommendation,
+      diagnosis: recommendation.diagnosis,
+      nextQuestion: recommendation.nextQuestion,
     });
     if (saved) toast.success(`Saved to ${target.displayName?.split(" ")[0] ?? "patient"}'s file`);
   };
@@ -76,7 +77,8 @@ export function AmbientCaptureController() {
         doctorId: target.doctorId,
         appointmentId: target.appointmentId,
         symptoms: target.symptoms,
-        recommendation: recommendation.recommendation,
+        diagnosis: recommendation.diagnosis,
+      nextQuestion: recommendation.nextQuestion,
       });
       if (!saved) return;
       try {

@@ -77,7 +77,7 @@ export interface AmbientSession {
   stop: () => void;
   resume: () => Promise<void>;
   discard: () => void;
-  saveToNotes: (opts: { patientId: string; doctorId: string; appointmentId?: string; symptoms?: string; recommendation?: string | null }) => Promise<boolean>;
+  saveToNotes: (opts: { patientId: string; doctorId: string; appointmentId?: string; symptoms?: string; diagnosis?: string | null; nextQuestion?: string | null }) => Promise<boolean>;
 }
 
 // Owns the full lifecycle: idle -> starting -> listening -> stopping ->
@@ -352,7 +352,7 @@ export function useAmbientSession(): AmbientSession {
     });
 
   const saveToNotes = useCallback(
-    async (opts: { patientId: string; doctorId: string; appointmentId?: string; symptoms?: string; recommendation?: string | null }): Promise<boolean> => {
+    async (opts: { patientId: string; doctorId: string; appointmentId?: string; symptoms?: string; diagnosis?: string | null; nextQuestion?: string | null }): Promise<boolean> => {
       const finalTranscript = transcriptRef.current.trim();
       if (!isMeaningfulTranscript(finalTranscript, MIN_TRANSCRIPT_CHARS)) {
         toast.message("Nothing worth saving", { description: "That recording was too short or quiet to turn into a note." });
@@ -365,14 +365,19 @@ export function useAmbientSession(): AmbientSession {
           patientId: opts.patientId, doctorId: opts.doctorId, appointmentId: opts.appointmentId, symptoms: opts.symptoms,
         });
         const clip = await stopRecorder();
-        // The recommendation is kept out of the text handed to note
-        // generation — that text becomes GPT input, and folding an
-        // AI-authored suggestion into it risks the generated note
-        // blending it in as if the doctor said it. Appended as a clearly
-        // labeled addendum onto the finished note instead.
+        // Kept out of the text handed to note generation — that text
+        // becomes GPT input, and folding AI-authored suggestions into it
+        // risks the generated note blending them in as if the doctor said
+        // them. Appended as clearly labeled addenda onto the finished note
+        // instead, so they're captured alongside the notes but never
+        // mistaken for something the doctor or patient actually said.
         const { visit: recapped } = await api.post<{ visit: { notes: string | null } }>(`/api/v1/visits/${visit.id}/recap`, { text: finalTranscript });
-        if (opts.recommendation) {
-          const notes = `${recapped.notes ?? ""}\n\nAI-suggested consideration during consult (not a diagnosis): ${opts.recommendation}`.trim();
+        if (opts.diagnosis || opts.nextQuestion) {
+          const addenda = [
+            opts.diagnosis ? `AI-suggested diagnosis (for clinical review, not a final result): ${opts.diagnosis}` : null,
+            opts.nextQuestion ? `AI-suggested next question: ${opts.nextQuestion}` : null,
+          ].filter(Boolean);
+          const notes = [recapped.notes ?? "", ...addenda].join("\n\n").trim();
           await api.patch(`/api/v1/visits/${visit.id}`, { notes });
         }
         if (clip) {
