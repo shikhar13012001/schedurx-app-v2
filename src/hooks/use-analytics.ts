@@ -35,6 +35,28 @@ export function useUtilization(days = 7) {
   });
 }
 
+export interface EnterpriseAnalytics {
+  revenueByDoctor: { doctorId: string; doctorName: string; amountInr: number }[];
+  revenueByMode: { mode: string; amountInr: number }[];
+  outstanding: { count: number; amountInr: number };
+  noShow: { total: number; noShows: number; noShowRatePct: number };
+  queueTimings: { avgWaitMinutes: number | null; avgVisitMinutes: number | null };
+  returnRateByDoctor: { doctorId: string; doctorName: string; totalPatients: number; returningPatients: number; returnRatePct: number }[];
+  repeatVisitTrend: { month: string; totalVisits: number; repeatVisits: number; repeatRatePct: number }[];
+}
+
+// Financial/operational/patient-level breakdowns beyond the single summary
+// card above — see analytics-service.js's own comment for why these read
+// live tables directly rather than the day_stats view.
+export function useEnterpriseAnalytics(days = 30) {
+  const clinicId = useSession((s) => s.session?.clinicId);
+  return useQuery({
+    queryKey: ["analytics-enterprise", clinicId, days],
+    enabled: !!clinicId,
+    queryFn: async () => api.get<EnterpriseAnalytics>(`/api/v1/analytics/enterprise?days=${days}`),
+  });
+}
+
 // practice-pulse is OpenAI-backed and currently 503s in production when the
 // provider has no billing credits — treated as "no insights yet", not an error.
 export function usePracticePulse() {

@@ -16,7 +16,18 @@ const tooltipStyle = {
   color: "rgb(var(--ink))",
 };
 
-export default function AnalyticsCharts({ stats }: { stats: { label: string; appointments: number; revenue: number }[] }) {
+export default function AnalyticsCharts({
+  stats,
+  repeatVisitTrend,
+}: {
+  stats: { label: string; appointments: number; revenue: number }[];
+  repeatVisitTrend?: { month: string; totalVisits: number; repeatVisits: number }[];
+}) {
+  const trendData = (repeatVisitTrend ?? []).map((row) => ({
+    label: row.month.slice(5), // "2026-03" -> "03"
+    "New patients": row.totalVisits - row.repeatVisits,
+    "Returning patients": row.repeatVisits,
+  }));
   return (
     <>
       <section className="rounded-panel bg-surface px-4 py-5 shadow-card">
@@ -58,6 +69,26 @@ export default function AnalyticsCharts({ stats }: { stats: { label: string; app
           </ResponsiveContainer>
         </div>
       </section>
+
+      {trendData.length > 0 && (
+        <section className="rounded-panel bg-surface px-4 py-5 shadow-card">
+          <div className="px-2">
+            <p className="text-[12px] text-muted">Patients · 6 months</p>
+            <p className="mt-1 text-[19px] font-medium tracking-[-0.03em]">New vs. returning</p>
+          </div>
+          <div className="mt-5 h-56" data-noswipe>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={trendData} margin={{ left: -30, right: 2, top: 4, bottom: 0 }}>
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "rgb(var(--muted))", fontSize: 10 }} />
+                <YAxis hide />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Bar dataKey="New patients" stackId="v" fill="rgb(var(--stone))" radius={[0, 0, 0, 0]} barSize={16} />
+                <Bar dataKey="Returning patients" stackId="v" fill="rgb(var(--primary))" radius={[8, 8, 0, 0]} barSize={16} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
     </>
   );
 }

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowRight, Lock, Sparkles } from "lucide-react";
 import { useClinic, useSession } from "@/stores";
-import { useAnalyticsSummary, useUtilization, usePracticePulse } from "@/hooks/use-analytics";
+import { useAnalyticsSummary, useUtilization, usePracticePulse, useEnterpriseAnalytics } from "@/hooks/use-analytics";
 import { useAppointments } from "@/hooks/use-appointments";
 import { usePatients } from "@/hooks/use-patients";
 import { cn, inr } from "@/lib/utils";
@@ -23,6 +23,7 @@ function AnalyticsInner() {
   const { data: utilizationData } = useUtilization(7);
   const { data: insights } = usePracticePulse();
   const { data: patients } = usePatients();
+  const { data: enterprise } = useEnterpriseAnalytics(30);
   const stats = summary?.daily ?? [];
   const [showAll, setShowAll] = useState(settings.viewMode === "advanced");
 
@@ -111,7 +112,7 @@ function AnalyticsInner() {
         </button>
       ) : (
         <div className="space-y-6">
-          <AnalyticsCharts stats={stats} />
+          <AnalyticsCharts stats={stats} repeatVisitTrend={enterprise?.repeatVisitTrend} />
 
           <section className="rounded-panel bg-surface px-5 py-6 shadow-card">
             <div className="flex items-end justify-between gap-4">
@@ -150,6 +151,96 @@ function AnalyticsInner() {
               ))}
             </div>
           </section>
+
+          {/* Financial — revenue by doctor / by mode, real Invoice rows only
+              (see invoice-service.js's recordPaidTokenPayment). "By service"
+              reads as appointment mode — this codebase has no separate
+              service/procedure catalog to break revenue down by instead. */}
+          <section className="rounded-panel bg-surface px-5 py-6 shadow-card">
+            <div className="flex items-end justify-between gap-4">
+              <div><p className="text-[12px] text-muted">Financial · 30 days</p><p className="mt-1 text-[19px] font-medium tracking-[-0.03em]">Revenue breakdown</p></div>
+              {(enterprise?.outstanding.count ?? 0) > 0 && (
+                <p className="text-[11px] text-danger">{inr(enterprise!.outstanding.amountInr)} outstanding · {enterprise!.outstanding.count}</p>
+              )}
+            </div>
+            {(enterprise?.revenueByDoctor.length ?? 0) === 0 ? (
+              <p className="mt-5 text-[13px] leading-relaxed text-muted">No paid invoices in the last 30 days yet.</p>
+            ) : (
+              <div className="mt-6 grid gap-6 sm:grid-cols-2">
+                <div>
+                  <p className="text-[11px] text-faint">By doctor</p>
+                  <div className="mt-3 space-y-4">
+                    {enterprise!.revenueByDoctor.map((row) => {
+                      const max = Math.max(1, ...enterprise!.revenueByDoctor.map((r) => r.amountInr));
+                      return (
+                        <div key={row.doctorId}>
+                          <div className="flex justify-between text-[12px]"><span>{row.doctorName}</span><span className="tabular-nums text-muted">{inr(row.amountInr)}</span></div>
+                          <div className="mt-1.5 h-px bg-border/70"><div className="h-px bg-primary" style={{ width: `${(row.amountInr / max) * 100}%` }} /></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] text-faint">By mode</p>
+                  <div className="mt-3 space-y-4">
+                    {enterprise!.revenueByMode.map((row) => {
+                      const max = Math.max(1, ...enterprise!.revenueByMode.map((r) => r.amountInr));
+                      return (
+                        <div key={row.mode}>
+                          <div className="flex justify-between text-[12px]"><span className="capitalize">{row.mode}</span><span className="tabular-nums text-muted">{inr(row.amountInr)}</span></div>
+                          <div className="mt-1.5 h-px bg-border/70"><div className="h-px bg-primary" style={{ width: `${(row.amountInr / max) * 100}%` }} /></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Operational — a real no-show rate (distinct from the summary
+              card's cancellation-based one above) plus real wait/visit
+              timing from the queue's own check-in/call/complete timestamps. */}
+          <section className="rounded-panel bg-surface px-5 py-6 shadow-card">
+            <p className="text-[12px] text-muted">Operational · 30 days</p>
+            <p className="mt-1 text-[19px] font-medium tracking-[-0.03em]">Real no-show &amp; wait times</p>
+            <div className="mt-6 grid grid-cols-3 gap-3">
+              <div>
+                <p className="font-display text-[24px] font-light tracking-[-0.04em] tabular-nums">{enterprise?.noShow.noShowRatePct ?? 0}%</p>
+                <p className="mt-1 text-[11px] text-muted">no-show ({enterprise?.noShow.noShows ?? 0} of {enterprise?.noShow.total ?? 0})</p>
+              </div>
+              <div>
+                <p className="font-display text-[24px] font-light tracking-[-0.04em] tabular-nums">{enterprise?.queueTimings.avgWaitMinutes ?? "—"}</p>
+                <p className="mt-1 text-[11px] text-muted">avg wait, min</p>
+              </div>
+              <div>
+                <p className="font-display text-[24px] font-light tracking-[-0.04em] tabular-nums">{enterprise?.queueTimings.avgVisitMinutes ?? "—"}</p>
+                <p className="mt-1 text-[11px] text-muted">avg visit, min</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Patient-level — return rate PER DOCTOR (a patient can be new to
+              one doctor but returning to another, unlike the summary card's
+              clinic-wide return figure above); the repeat-visit trend chart
+              itself is rendered by AnalyticsCharts above. */}
+          {(enterprise?.returnRateByDoctor.length ?? 0) > 0 && (
+            <section className="rounded-panel bg-charcoal px-5 py-6 text-white shadow-card">
+              <p className="text-[12px] text-white/[0.52]">Return rate by doctor</p>
+              <div className="mt-5 space-y-5">
+                {enterprise!.returnRateByDoctor.map((row) => (
+                  <div key={row.doctorId}>
+                    <div className="flex justify-between text-[12px]">
+                      <span>{row.doctorName}</span>
+                      <span className="text-white/[0.55]">{row.returnRatePct}% · {row.returningPatients}/{row.totalPatients}</span>
+                    </div>
+                    <div className="mt-2 h-px bg-white/[0.15]"><div className="h-px bg-primary" style={{ width: `${row.returnRatePct}%` }} /></div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       )}
     </div>
