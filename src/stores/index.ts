@@ -127,7 +127,11 @@ type ClinicStore = {
   markNotifsRead: () => Promise<void>;
   markNotifRead: (id: string) => Promise<void>;
   removeNotif: (id: string) => Promise<void>;
-  addTask: (text: string, due?: string, viaAI?: boolean) => Promise<void>;
+  // Returns whether the due-time reminder genuinely failed to get set (a
+  // dueAt was given, but the scheduler couldn't carry it) — false/undefined
+  // is the normal case. The caller uses this to actually tell the staff
+  // member, instead of the task looking identically "added" either way.
+  addTask: (text: string, due?: string, viaAI?: boolean) => Promise<{ reminderFailed?: boolean }>;
   toggleTask: (id: string, done: boolean) => Promise<void>;
   removeTask: (id: string) => Promise<void>;
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => Promise<void>;
@@ -253,8 +257,9 @@ export const useClinic = create<ClinicStore>()((set, get) => ({
     await invalidate(["notifications", clinicId()]);
   },
   addTask: async (text, due, viaAI) => {
-    await api.post("/api/v1/tasks", { title: text, dueAt: due, viaAI });
+    const { task } = await api.post<{ task: { reminderFailed?: boolean } }>("/api/v1/tasks", { title: text, dueAt: due, viaAI });
     await invalidate(["tasks", clinicId()]);
+    return { reminderFailed: task.reminderFailed };
   },
   toggleTask: async (id, done) => {
     await api.patch(`/api/v1/tasks/${id}`, { done });

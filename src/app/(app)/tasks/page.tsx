@@ -48,6 +48,17 @@ export default function TasksPage() {
   const [blocking, setBlocking] = React.useState(false);
   const [blockMinutes, setBlockMinutes] = React.useState(60);
 
+  // dueLabel() computes against Date.now() internally, but nothing else on
+  // this page ticks — without this, a task's "Due in 2 min" label would
+  // freeze at whatever it read on the last actual data fetch instead of
+  // ever flipping to "overdue" while the page just sits open. Re-render
+  // only; the value itself isn't used anywhere below.
+  const [, setNowTick] = React.useState(0);
+  React.useEffect(() => {
+    const timer = setInterval(() => setNowTick((t) => t + 1), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const due = customOpen && customTime
     ? dateAt(customDate, ...(customTime.split(":").map(Number) as [number, number]))
     : chip
@@ -61,12 +72,21 @@ export default function TasksPage() {
     setText(""); setChip(null); setCustomOpen(false); setCustomTime(""); setBlocking(false);
 
     try {
-      await addTask(title, dueAt);
+      const { reminderFailed } = await addTask(title, dueAt);
       if (dueAt && blocking) {
         const doctorId = session?.doctorId ?? doctors?.[0]?.id;
         if (doctorId) await blockTime(doctorId, dueAt, blockMinutes, title);
       }
-      toast.success(dueAt ? (blocking ? "Task added and time blocked on your calendar." : "Task added — I'll nudge you.") : "Task added.");
+      if (reminderFailed) {
+        // Live-reported bug (2026-09-08): a reminder that silently never
+        // got set used to look identical to one that worked. There's still
+        // a server-side safety net (notifyDueTasks) that'll catch this task
+        // once it's actually due, but saying so now means the failure was
+        // never invisible in the first place.
+        toast.warning("Task added, but I couldn't set a calendar reminder for it — you'll still get a notification when it's due.");
+      } else {
+        toast.success(dueAt ? (blocking ? "Task added and time blocked on your calendar." : "Task added — I'll nudge you.") : "Task added.");
+      }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't add that task.");
     }

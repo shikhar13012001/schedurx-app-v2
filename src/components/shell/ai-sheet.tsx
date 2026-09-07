@@ -128,14 +128,29 @@ export function AiSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
   // it's called synchronously inside the gesture handler itself — anything
   // after an `await` (the /speak fetch, or the reply-streaming that finishes
   // well after the mic gesture that started it) no longer counts, and
-  // .play() rejects with NotAllowedError. Calling play() synchronously here,
-  // even with nothing loaded yet, "unlocks" this specific <audio> element for
-  // the rest of the session — later programmatic play() calls on the same
-  // element (in speak(), including the auto-read-back after a voice
-  // question) then succeed without needing their own fresh gesture.
+  // .play() rejects with NotAllowedError. Calling play() synchronously here
+  // "unlocks" this specific <audio> element for the rest of the session —
+  // later programmatic play() calls on the same element (in speak(),
+  // including the auto-read-back after a voice question) then succeed
+  // without needing their own fresh gesture.
+  //
+  // Live-reported bug (2026-09-08, confirmed from a real iPhone): the
+  // backend's /speak call was verified succeeding every time (real 200s,
+  // real audio bytes in production logs) — the failure was entirely here.
+  // An <audio> element with no src at all doesn't count as genuine
+  // "playback" to iOS's unlock heuristic, so this never actually unlocked
+  // anything; the real play() later in speak() then rejected with
+  // NotAllowedError, which is exactly the "couldn't play that reply aloud"
+  // toast being reported. A real (if silent) source has to actually start
+  // playing within the gesture for the unlock to register — this is a
+  // minimal valid WAV, chosen because it's tiny and universally supported,
+  // not an mp3/empty element.
+  const SILENT_WAV = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
   function primeAudioForIOS() {
     if (!audioRef.current) audioRef.current = new Audio();
-    audioRef.current.play().catch(() => {});
+    const audio = audioRef.current;
+    if (!audio.src) audio.src = SILENT_WAV;
+    audio.play().catch(() => {});
   }
 
   // Was the browser's own SpeechRecognition (webkitSpeechRecognition) —

@@ -78,8 +78,12 @@ export function NowServing({ doctorId, compact = false }: { doctorId: string; co
     setFu(label);
     setCustomFollowUpOpen(false);
     try {
-      await addTask(`Follow up with ${displayName ?? "patient"}`, dueDate.toISOString());
-      toast.success(`Follow-up set · ${fmtDate(dueDate.toISOString())}`, { description: "Added to Tasks." });
+      const { reminderFailed } = await addTask(`Follow up with ${displayName ?? "patient"}`, dueDate.toISOString());
+      if (reminderFailed) {
+        toast.warning(`Follow-up added, but I couldn't set a calendar reminder for it`, { description: "You'll still get a notification when it's due." });
+      } else {
+        toast.success(`Follow-up set · ${fmtDate(dueDate.toISOString())}`, { description: "Added to Tasks." });
+      }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Couldn't set that follow-up.");
     }

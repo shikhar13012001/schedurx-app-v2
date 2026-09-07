@@ -11,7 +11,7 @@
 
 import type {
   Appointment, ApptStatus, ApptSource, CallLog, ChatMsg, DayStat, Doctor, Invoice,
-  Notif, Patient, QueueItem, QueueState, Staff, Task, Thread, Triage, Visit, VisitAttachment, VisitMode, WaLog,
+  Notif, NotifKind, Patient, QueueItem, QueueState, Staff, Task, Thread, Triage, Visit, VisitAttachment, VisitMode, WaLog,
 } from "@/lib/types";
 import type { Settings } from "@/stores";
 
@@ -364,12 +364,19 @@ export interface ApiNotification {
   readAt?: string | null;
 }
 
+const NOTIF_KINDS: NotifKind[] = ["critical", "reminder", "booking", "review", "waitlist", "system"];
+
 export function fromApiNotification(n: ApiNotification): Notif {
   const text = [n.title, n.body].filter(Boolean).join(": ") || n.body || n.title || "";
   return {
     id: n.id,
     at: n.createdAt,
-    kind: (n.type as Notif["kind"]) ?? "system",
+    // A plain `as` cast here previously let any unrecognized backend `type`
+    // string through unchanged (?? only catches null/undefined, not "not a
+    // real NotifKind") — the notifications page indexes an icon table by
+    // this value with no fallback, so a new/typo'd type would have crashed
+    // the whole page instead of just rendering with the generic icon.
+    kind: NOTIF_KINDS.includes(n.type as NotifKind) ? (n.type as NotifKind) : "system",
     text,
     read: n.readAt != null,
   };
