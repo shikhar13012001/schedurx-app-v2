@@ -35,6 +35,7 @@ interface MissedCallPluginApi {
   setEnabled(opts: { enabled: boolean }): Promise<void>;
   cacheAuthToken(opts: { idToken: string | null }): Promise<void>;
   syncWhitelist(opts: { numbers: string[] }): Promise<void>;
+  syncPatientPhones(opts: { numbers: string[] }): Promise<void>;
   setBackendOrigin(opts: { origin: string }): Promise<void>;
   backfillRecentMissedCalls(opts: { limit: number }): Promise<{ count: number }>;
 }
@@ -84,6 +85,13 @@ export const nativeMissedCall = {
   // useSyncNativeWhitelist in use-caller-whitelist.ts.
   async syncWhitelist(numbers: string[]) {
     await plugin()?.syncWhitelist({ numbers });
+  },
+  // Piggy-backs on the Patient Directory's own list fetch — see
+  // useSyncNativePatientPhones. Lets an existing patient saved as a phone
+  // contact still get reported as a missed call instead of being wrongly
+  // skipped for being "known" (see MissedCallScanner.shouldSkipKnownContact).
+  async syncPatientPhones(numbers: string[]) {
+    await plugin()?.syncPatientPhones({ numbers });
   },
   async setBackendOrigin(origin: string) {
     await plugin()?.setBackendOrigin({ origin });

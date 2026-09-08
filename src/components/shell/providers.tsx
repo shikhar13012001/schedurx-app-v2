@@ -8,6 +8,8 @@ import { queryClient } from "@/lib/query-client";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { useSession } from "@/stores";
 import { isNativeShell, nativeMissedCall } from "@/lib/native-missed-call";
+import { useCallerWhitelist } from "@/hooks/use-caller-whitelist";
+import { usePatients } from "@/hooks/use-patients";
 
 // Keeps the local session cache honest against Firebase's own persisted auth
 // state — if the Firebase session ends (elsewhere, or a revoked token), the
@@ -47,12 +49,35 @@ function NativeMissedCallSync() {
   return null;
 }
 
+// use-caller-whitelist.ts's own sync effect only fires while the
+// Automations page happens to be open — this mirrors it (harmlessly
+// redundant when both are mounted) somewhere always-mounted, so the native
+// cache stays fresh regardless of which page a staff member is on. Also
+// syncs the clinic's patient phone numbers — see MissedCallPrefs.kt's
+// getPatientPhoneSuffixes for why a patient saved as a phone contact needs
+// this to still be reported as a missed call.
+function NativeDataSync() {
+  const { data: whitelist } = useCallerWhitelist();
+  const { data: patients } = usePatients();
+
+  useEffect(() => {
+    if (whitelist) void nativeMissedCall.syncWhitelist(whitelist.map((e) => e.phone));
+  }, [whitelist]);
+
+  useEffect(() => {
+    if (patients) void nativeMissedCall.syncPatientPhones(patients.map((p) => p.phone));
+  }, [patients]);
+
+  return null;
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeApplier />
       <AuthSync />
       <NativeMissedCallSync />
+      <NativeDataSync />
       {children}
       <Toaster
         position="top-center"

@@ -24,6 +24,11 @@ export type ReviewState = "given" | "link_sent" | "none";
 export interface Patient {
   id: string; name: string; phone: string; age: number; gender: "M" | "F" | "O";
   email?: string; tags: string[]; review: ReviewState; visits: Visit[];
+  // "missed_call" — auto-created from an eligible missed call, not yet
+  // confirmed as a real patient (see the Captured filter on the Patients
+  // page). Cleared automatically the moment they book a real appointment,
+  // or manually via the "Confirm as patient" action.
+  source?: "missed_call" | null;
   // Real per-patient visit count from the backend. Populated on the list
   // endpoint (which doesn't fetch each patient's full `visits` array — too
   // expensive); the detail page's own full `visits` fetch is the fallback

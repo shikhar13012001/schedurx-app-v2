@@ -86,6 +86,7 @@ export interface ApiPatient {
   gender?: string | null;
   visitsCount?: number;
   lastVisitDate?: string | null;
+  source?: "missed_call" | null;
 }
 
 export function fromApiPatient(p: ApiPatient, visits: Visit[] = []): Patient {
@@ -104,6 +105,7 @@ export function fromApiPatient(p: ApiPatient, visits: Visit[] = []): Patient {
     // `visits` but doesn't send these — either way this resolves correctly.
     visitsCount: p.visitsCount ?? visits.length,
     lastVisitDate: p.lastVisitDate ?? visits[0]?.date,
+    source: p.source ?? null,
   };
 }
 
