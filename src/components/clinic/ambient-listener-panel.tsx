@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { HelpCircle, Mic, Square, Stethoscope, X } from "lucide-react";
 import { AIControl } from "@/components/ui/ai-control";
 import { AudioOrbVisualizer } from "@/components/clinic/audio-orb-visualizer";
-import { useAudioLevel } from "@/hooks/use-audio-level";
 import type { AmbientSession } from "@/hooks/use-ambient-session";
 import type { LiveRecommendation } from "@/hooks/use-live-recommendation";
 
@@ -39,7 +38,6 @@ export function AmbientListenerPanel({
 }) {
   const live = session.phase === "listening";
   const reviewing = session.phase === "review" || session.phase === "saving";
-  const levels = useAudioLevel(live ? session.micStream : null);
   const hasSuggestions = !!(recommendation.diagnosis || recommendation.nextQuestion);
 
   return (
@@ -102,7 +100,7 @@ export function AmbientListenerPanel({
             {live && (
               <div className="flex flex-1 items-center justify-center py-2">
                 <div className="h-40 w-40">
-                  <AudioOrbVisualizer levels={levels} active={live} />
+                  <AudioOrbVisualizer stream={live ? session.micStream : null} active={live} />
                 </div>
               </div>
             )}
