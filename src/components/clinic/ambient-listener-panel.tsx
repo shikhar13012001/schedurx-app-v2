@@ -3,38 +3,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { HelpCircle, Mic, Square, Stethoscope, X } from "lucide-react";
 import { AIControl } from "@/components/ui/ai-control";
+import { AudioOrbVisualizer } from "@/components/clinic/audio-orb-visualizer";
 import { useAudioLevel } from "@/hooks/use-audio-level";
 import type { AmbientSession } from "@/hooks/use-ambient-session";
 import type { LiveRecommendation } from "@/hooks/use-live-recommendation";
-
-// Gemini/Siri-style listening visual — three soft, blurred, audio-reactive
-// layers instead of a literal waveform. Replaces the earlier thin-bar
-// waveform AND the live transcript text entirely (explicit product
-// decision, 2026-09-08): the doctor sees this and the AI suggestions below
-// it, never the raw scrolling transcript — notes/transcript are still
-// captured and saved exactly as before, just not displayed live.
-function ListeningOrb({ levels }: { levels: number[] }) {
-  const avg = levels.length ? levels.reduce((a, b) => a + b, 0) / levels.length : 0;
-  return (
-    <div className="relative flex h-36 w-36 items-center justify-center" aria-hidden>
-      <motion.div
-        className="absolute h-36 w-36 rounded-full bg-gradient-to-br from-primary/50 via-[#8b7bf0]/40 to-[#ec6bb0]/40 blur-2xl"
-        animate={{ scale: 1 + avg * 0.55, opacity: 0.55 + avg * 0.35 }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
-      />
-      <motion.div
-        className="absolute h-24 w-24 rounded-full bg-gradient-to-tr from-primary/70 via-[#8b7bf0]/60 to-[#ec6bb0]/55 blur-md"
-        animate={{ scale: 1 + avg * 0.4, rotate: avg * 40 }}
-        transition={{ duration: 0.14, ease: "easeOut" }}
-      />
-      <motion.div
-        className="relative h-14 w-14 rounded-full bg-gradient-to-br from-white via-primary/80 to-[#8b7bf0]/80 shadow-[0_0_36px_rgba(255,255,255,0.3)]"
-        animate={{ scale: 1 + avg * 0.22 }}
-        transition={{ duration: 0.1, ease: "easeOut" }}
-      />
-    </div>
-  );
-}
 
 function fmtElapsed(totalSec: number) {
   const m = Math.floor(totalSec / 60);
@@ -129,7 +101,9 @@ export function AmbientListenerPanel({
                 captured and saved underneath exactly as before. */}
             {live && (
               <div className="flex flex-1 items-center justify-center py-2">
-                <ListeningOrb levels={levels} />
+                <div className="h-40 w-40">
+                  <AudioOrbVisualizer levels={levels} active={live} />
+                </div>
               </div>
             )}
 
