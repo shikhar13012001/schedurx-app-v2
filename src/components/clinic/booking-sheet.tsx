@@ -158,7 +158,7 @@ export function BookingSheet({ open, onOpenChange, walkIn = false, prefillPhone,
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={walkIn ? "Add walk-in" : "New appointment"}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-        <Field label="Patient phone" error={errors.phone?.message} hint={known ? `Known patient — ${known.visits.length} visit${known.visits.length === 1 ? "" : "s"} on file` : undefined}>
+        <Field label="Patient phone" error={errors.phone?.message} hint={known ? `Known patient — ${known.visitsCount} visit${known.visitsCount === 1 ? "" : "s"} on file` : undefined}>
           <Controller name="phone" control={control} render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} />} />
         </Field>
         <Field label="Patient name" error={errors.name?.message}>
