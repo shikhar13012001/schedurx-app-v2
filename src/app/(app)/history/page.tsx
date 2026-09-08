@@ -13,6 +13,7 @@ const OUTCOME: Record<string, string> = {
   rescheduled: "Appointment rescheduled",
   reminder_confirmed: "Visit confirmed",
   recovered_missed: "Missed call recovered",
+  missed_logged: "Missed call logged",
   info: "Query answered",
 };
 
@@ -44,9 +45,10 @@ export default function HistoryPage() {
           <div className="relative space-y-0 before:absolute before:bottom-3 before:left-[27px] before:top-3 before:w-px before:bg-border/70">
             {callLogs.map((call) => {
               const recovered = call.outcome === "recovered_missed";
+              const missed = recovered || call.outcome === "missed_logged";
               return (
                 <article key={call.id} className="relative flex gap-4 py-5 first:pt-2">
-                  <span className={cn("relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-[6px] border-bg", recovered ? "bg-warning-soft text-warning" : "bg-surface text-primary shadow-card")}>{recovered ? <PhoneForwarded size={17} /> : <PhoneIncoming size={17} />}</span>
+                  <span className={cn("relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-[6px] border-bg", recovered ? "bg-warning-soft text-warning" : "bg-surface text-primary shadow-card")}>{missed ? <PhoneForwarded size={17} /> : <PhoneIncoming size={17} />}</span>
                   <div className="min-w-0 flex-1 pt-1">
                     <div className="flex items-baseline gap-3"><p className="truncate text-[15px] font-medium">{call.name}</p><span className="ml-auto shrink-0 text-[10.5px] text-faint">{relTime(call.at)}</span></div>
                     <p className="mt-1 text-[12px] text-muted">{OUTCOME[call.outcome] ?? "Query answered"} · {Math.floor(call.durationSec / 60)}m {call.durationSec % 60}s · {call.lang}</p>

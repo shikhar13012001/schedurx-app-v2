@@ -57,7 +57,7 @@ export interface Thread {
   scope?: "general" | "booking"; appointmentId?: string;
 }
 
-export interface CallLog { id: string; at: string; name: string; phone: string; lang: string; durationSec: number; outcome: "booked" | "rescheduled" | "reminder_confirmed" | "info" | "recovered_missed"; summary: string; }
+export interface CallLog { id: string; at: string; name: string; phone: string; lang: string; durationSec: number; outcome: "booked" | "rescheduled" | "reminder_confirmed" | "info" | "recovered_missed" | "missed_logged"; summary: string; }
 export interface WaLog { id: string; at: string; name: string; phone: string; kind: "booking" | "reminder" | "follow_up" | "review_link" | "rx_sent"; preview: string; }
 
 export type NotifKind = "critical" | "reminder" | "booking" | "review" | "waitlist" | "system";
