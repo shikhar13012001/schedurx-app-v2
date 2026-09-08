@@ -36,6 +36,7 @@ interface MissedCallPluginApi {
   cacheAuthToken(opts: { idToken: string | null }): Promise<void>;
   syncWhitelist(opts: { numbers: string[] }): Promise<void>;
   setBackendOrigin(opts: { origin: string }): Promise<void>;
+  backfillRecentMissedCalls(opts: { limit: number }): Promise<{ count: number }>;
 }
 
 export function isNativeShell(): boolean {
@@ -86,5 +87,13 @@ export const nativeMissedCall = {
   },
   async setBackendOrigin(origin: string) {
     await plugin()?.setBackendOrigin({ origin });
+  },
+  // Manual test/backfill trigger — scans the device's own call log for up to
+  // `limit` most recent missed calls from an unknown/whitelisted number and
+  // reports each one immediately, without waiting for a real missed call.
+  // Returns null outside the native shell (nothing to scan).
+  async backfillRecentMissedCalls(limit = 10): Promise<number | null> {
+    const result = await plugin()?.backfillRecentMissedCalls({ limit });
+    return result?.count ?? null;
   },
 };

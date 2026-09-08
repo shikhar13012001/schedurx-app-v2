@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PhoneMissed, ShieldCheck, BatteryCharging, Settings2 } from "lucide-react";
+import { PhoneMissed, ShieldCheck, BatteryCharging, Settings2, History } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -33,6 +33,7 @@ export function MissedCallDeviceSetup() {
   const [native, setNative] = useState(false);
   const [step, setStep] = useState<Step>("loading");
   const [manufacturer, setManufacturer] = useState<string | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
 
   useEffect(() => {
     setNative(isNativeShell());
@@ -97,6 +98,27 @@ export function MissedCallDeviceSetup() {
     setStep("off");
   }
 
+  // Manual test/backfill trigger — scans the last 10 missed calls already in
+  // this phone's call log from unknown/whitelisted numbers and reports each
+  // one immediately, instead of waiting for a new missed call to happen live.
+  // Only needs call-log/contacts permission (steps "on" and "needs-battery"
+  // both imply that), not the full master-switch/battery-exemption flow.
+  async function backfill() {
+    setBackfilling(true);
+    try {
+      const count = await nativeMissedCall.backfillRecentMissedCalls(10);
+      if (count === null) {
+        toast.error("Couldn't scan the call log.");
+      } else if (count === 0) {
+        toast.info("No missed calls from unknown numbers found in recent history.");
+      } else {
+        toast.success(`Found and reported ${count} missed call${count === 1 ? "" : "s"}.`);
+      }
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
   if (!native) return null;
 
   const oemTip = manufacturer ? Object.entries(OEM_HELP).find(([key]) => manufacturer.includes(key))?.[1] : null;
@@ -116,10 +138,15 @@ export function MissedCallDeviceSetup() {
         </div>
 
         {step === "on" && (
-          <div className="flex items-center justify-between rounded-[18px] bg-surface-soft px-4 py-3">
-            <span className="flex items-center gap-2 text-[13px] font-medium"><ShieldCheck size={15} className="text-primary" /> On</span>
-            <Switch checked={true} onCheckedChange={toggleOff} />
-          </div>
+          <>
+            <div className="flex items-center justify-between rounded-[18px] bg-surface-soft px-4 py-3">
+              <span className="flex items-center gap-2 text-[13px] font-medium"><ShieldCheck size={15} className="text-primary" /> On</span>
+              <Switch checked={true} onCheckedChange={toggleOff} />
+            </div>
+            <Button size="sm" variant="outline" className="w-full" disabled={backfilling} onClick={backfill}>
+              <History size={14} /> {backfilling ? "Scanning…" : "Scan last 10 calls now"}
+            </Button>
+          </>
         )}
 
         {(step === "off" || step === "loading") && (
